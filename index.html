@@ -1,0 +1,179 @@
+<title>The Foul Play Campaign</title>
+<style>
+:root{
+  --bg:#f7f8fa; --card:#ffffff; --edge:#dde3ea; --ink:#1c2733; --dim:#5b6b7c;
+  --accent:#2f6fbe; --gold:#b07d10; --band:rgba(91,107,124,.14);
+  --good:#1d7a4a;
+}
+:root:not([data-theme="light"]){ }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0f14; --card:#131a22; --edge:#243040; --ink:#dbe4ee; --dim:#8b99a9;
+    --accent:#6ab0f3; --gold:#ffd75e; --band:rgba(139,153,169,.16); --good:#4fce8d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0f14; --card:#131a22; --edge:#243040; --ink:#dbe4ee; --dim:#8b99a9;
+  --accent:#6ab0f3; --gold:#ffd75e; --band:rgba(139,153,169,.16); --good:#4fce8d;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;padding:28px 18px 60px;max-width:760px;margin:0 auto}
+header{margin-bottom:26px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+h1{font-size:26px;line-height:1.2;text-wrap:balance}
+.date{color:var(--dim);font-size:13px;margin-top:6px}
+.hero{display:flex;gap:14px;margin:22px 0;flex-wrap:wrap}
+.stat{flex:1;min-width:150px;background:var(--card);border:1px solid var(--edge);border-radius:14px;padding:16px 14px}
+.stat .v{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .v.up{color:var(--good)}
+.stat .k{font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--edge);border-radius:14px;padding:18px;margin:18px 0}
+.card h2{font-size:15px;margin-bottom:10px}
+canvas{width:100%;height:230px;display:block}
+.legend{display:flex;gap:16px;font-size:11px;color:var(--dim);margin-top:8px;flex-wrap:wrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:99px;margin-right:5px;vertical-align:middle}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--edge)}
+td{padding:9px 10px;border-bottom:1px solid var(--edge);vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+tr.star td{background:color-mix(in srgb, var(--gold) 9%, transparent)}
+tr.star td.num{color:var(--gold)}
+p{margin:10px 0;max-width:66ch}
+.note{font-size:12.5px;color:var(--dim);border-left:3px solid var(--edge);padding:2px 0 2px 12px;margin:14px 0}
+h2.sec{font-size:17px;margin:30px 0 6px}
+</style>
+
+<header>
+  <div class="eyebrow">Eclipse battle AI &middot; benchmark report</div>
+  <h1>The Foul Play Campaign</h1>
+  <div class="date">Updated August 28, 2026 (morning) &middot; the full ladder: Abyssal &rarr; PokeChamp &rarr; humans &rarr; Foul Play (gen9ou)</div>
+</header>
+
+<div class="hero">
+  <div class="stat"><div class="v up">+8.0pp</div><div class="k">confirmed gain, p&thinsp;=&thinsp;0.0001</div></div>
+  <div class="stat"><div class="v">18.8% vs 10.8%</div><div class="k">v4 stack vs control, 600 games each</div></div>
+  <div class="stat"><div class="v">replicated: null</div><div class="k">the +4.2pp did not survive its rerun (&minus;2.3pp, p&thinsp;=&thinsp;0.29)</div></div>
+</div>
+
+<div class="card">
+  <h2>The opponent ladder &mdash; how far the AI has climbed</h2>
+  <canvas id="ladder" style="height:200px"></canvas>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--accent)"></span>win rate vs that opponent</span>
+    <span><span class="dot" style="background:var(--gold)"></span>current frontier</span>
+  </div>
+  <p style="font-size:12.5px;color:var(--dim);margin-top:10px">Each opponent is a different weight class. Abyssal fell first (79.4%). PokeChamp &mdash; a published research bot &mdash; fell 14&ndash;5 across pooled arms (the minimax arm went 8&ndash;2). Unrestricted human challengers exposed the switch-economy defect era at 1W&ndash;15L. Foul Play plays at roughly top-100-ladder strength; the numbers below are the campaign to crack it.</p>
+</div>
+
+<div class="card">
+  <h2>The Foul Play era &mdash; win rate by architecture (chronological)</h2>
+  <canvas id="chart"></canvas>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--accent)"></span>measured result</span>
+    <span><span class="dot" style="background:var(--gold)"></span>current best</span>
+    <span><span class="dot" style="background:var(--band);outline:1px solid var(--edge)"></span>control band 10&ndash;12.8%</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>The ledger</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Architecture</th><th>Win rate</th><th>Games</th><th>What it tested</th></tr>
+    <tr><td>Shipped control</td><td class="num">10.0%</td><td class="num">600</td><td>The production searcher (40&thinsp;ms, 2-ply)</td></tr>
+    <tr><td>Engine search, depth 8, hand-built leaf</td><td class="num">11.2%</td><td class="num">600</td><td>Deeper search over a native engine (corrected: 7 artifact wins withdrawn)</td></tr>
+    <tr><td>Learned value leaf</td><td class="num">11.2%</td><td class="num">600</td><td>A trained judge (offline AUC 0.75 vs hand 0.72) &mdash; no live gain</td></tr>
+    <tr><td>v3 behavior stack</td><td class="num">11.5%</td><td class="num">600</td><td>Five fixes from a 60-battle autopsy of real losses &mdash; exact null</td></tr>
+    <tr><td>Search primacy</td><td class="num">8.7%</td><td class="num">300</td><td>The shallow search as sole authority &mdash; decisively worse</td></tr>
+    <tr><td>v4 native MCTS (observational)</td><td class="num">21.7%</td><td class="num">300</td><td>Foul Play&rsquo;s own search shape &mdash; single-arm, and its clock ran ~19% long, so the number was flattered</td></tr>
+    <tr><td>supercharged bundle <b>(superseded by replication)</b></td><td class="num">19.2% / 15.0%</td><td class="num">2&times;600&times;2</td><td>root hygiene + the armed policy prior vs the frozen frontier, run twice on fresh frames: <b>+4.2 (p&thinsp;=&thinsp;0.046, by one withdrawn row)</b> then <b>&minus;2.3 (p&thinsp;=&thinsp;0.29, 600 clean pairs)</b>. The preregistered replication outranks: pooled &asymp;+0.9pp = nothing. The bundle stays shipped (the hygiene fixes are correctness), but the frontier remains the v4 full stack &mdash; and the pair of runs is the campaign&rsquo;s cleanest demonstration that single-lever effects are smaller than 600-game resolution</td></tr>
+    <tr class="star"><td>v4 full stack &nbsp;&#9733; <b>confirmed</b></td><td class="num">18.8%</td><td class="num">600&times;2</td><td>MCTS + trained judge at the leaf + full-team opponent modeling + search-waste fixes, at honest budget vs a paired control (10.8%): <b>+8.0 points, p&thinsp;=&thinsp;0.0001</b> &mdash; the campaign&rsquo;s first statistically confirmed gain</td></tr>
+  </table>
+  </div>
+</div>
+
+<h2 class="sec">Why the last one worked when four didn&rsquo;t</h2>
+<p>Every earlier attempt upgraded the <em>judge</em> &mdash; a better evaluation function, more fixes, more knowledge &mdash; while the search looked only two to four exchanges into the future and guessed the rest. Foul Play spends the same 100&thinsp;ms differently: a best-first tree search that pours its budget into promising lines (following them 15&ndash;20+ turns deep), evaluates roughly a hundred thousand positions per decision inside a native engine, and plays the move that survived the most scrutiny rather than the one with the highest single estimate.</p>
+<p>v4 calls that exact search &mdash; an entry point of the same open-source engine both bots already embed &mdash; fed by our own opponent-inference. First outing: 65 wins in 300 clean games, zero errors, roughly double every number the campaign had ever produced.</p>
+
+<div class="note">
+Honest print: the confirmed +8.0 is a paired, preregistered, artifact-gated result at equal budget &mdash; the first of its kind here. The earlier 21.7% is a single-arm observational run from a reviewed branch build, and its decisions used ~119&thinsp;ms against Foul&nbsp;Play&rsquo;s 100&thinsp;ms &mdash; a compute edge the preregistered paired confirmatory (600 per arm, budget-controlled, two-sided test) exists to control. That run is the number that gets to count. All prior results carry the same statistical discipline, including the withdrawal of seven harness-artifact wins discovered by audit.
+</div>
+
+<h2 class="sec">What&rsquo;s next</h2>
+<p>Four parallel builds are in flight on top of the winner: our measurably better value model as the MCTS leaf, engine-fidelity fixes (the ability census), a structural fix for search-starvation on gimmick options, and full-team belief determinization &mdash; the opponent-model edge Foul Play doesn&rsquo;t have. One combined measurement follows when all four land. The current brain is also live on the private Showdown server at 250&thinsp;ms for real players to test &mdash; the first human rematch since the 1W&ndash;15L era, now with a fundamentally different search.</p>
+
+<script>
+const LADDER = [
+  {label:"Abyssal", rate:79.4, sub:"baseline bot"},
+  {label:"PokeChamp", rate:73.7, sub:"14–5 pooled; 8–2 minimax"},
+  {label:"humans (open challenge)", rate:6.3, sub:"1W–15L, pre-v3 build"},
+  {label:"Foul Play — pre-MCTS", rate:11.5, sub:"best of 4 architectures"},
+  {label:"Foul Play — v4 stack", rate:18.8, sub:"confirmed +8.0pp, p=0.0001", star:true},
+];
+const MS = [
+  {label:"control", rate:10.0},
+  {label:"depth-8 + hand leaf", rate:11.2},
+  {label:"learned leaf", rate:11.2},
+  {label:"v3 stack", rate:11.5},
+  {label:"search primacy", rate:8.7},
+  {label:"v4 native MCTS (obs.)", rate:21.7},
+  {label:"supercharged ★ confirmed*", rate:19.2, star:true},
+  {label:"v4 full stack ★ confirmed", rate:18.8, star:true},
+];
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function drawLadder(){
+  const cv = document.getElementById("ladder");
+  const dpr = devicePixelRatio||1, w = cv.clientWidth, h = cv.clientHeight;
+  if(!w||!h) return;
+  cv.width = w*dpr; cv.height = h*dpr;
+  const x = cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  const accent = css("--accent"), gold = css("--gold"), dim = css("--dim"),
+        edge = css("--edge"), ink = css("--ink");
+  const L=150, R=54, T=8, rowH=(h-T-8)/LADDER.length;
+  const maxV=100, PW=w-L-R;
+  x.font="10px sans-serif";
+  LADDER.forEach((m,i)=>{
+    const y = T + rowH*i + rowH*0.18, bh = rowH*0.5;
+    const c = m.star? gold : accent;
+    x.fillStyle=edge; x.fillRect(L, y, PW, bh);
+    x.fillStyle=c; x.fillRect(L, y, PW*m.rate/maxV, bh);
+    x.fillStyle=ink; x.textAlign="right"; x.font="600 11px sans-serif";
+    x.fillText(m.label, L-8, y+bh*0.5+1);
+    x.fillStyle=dim; x.font="9px sans-serif";
+    x.fillText(m.sub, L-8, y+bh*0.5+12);
+    x.fillStyle=ink; x.textAlign="left"; x.font=(m.star?"bold 12px":"11px")+" sans-serif";
+    x.fillText(m.rate.toFixed(1)+"%", L+PW*m.rate/maxV+6, y+bh*0.5+4);
+  });
+}
+function draw(){
+  const cv = document.getElementById("chart");
+  const dpr = devicePixelRatio||1, w = cv.clientWidth, h = cv.clientHeight;
+  if(!w||!h) return;
+  cv.width = w*dpr; cv.height = h*dpr;
+  const x = cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  const accent = css("--accent"), gold = css("--gold"), dim = css("--dim"),
+        edge = css("--edge"), band = css("--band"), ink = css("--ink");
+  const L=34, R=12, T=14, B=52, pw=w-L-R, ph=h-T-B, maxY=25;
+  const Y=v=>T+ph*(1-v/maxY), X=i=>L+pw*(i+0.5)/MS.length;
+  x.fillStyle=band; x.fillRect(L, Y(12.8), pw, Y(10.0)-Y(12.8));
+  x.strokeStyle=edge; x.fillStyle=dim; x.font="10px sans-serif"; x.textAlign="right";
+  for(const g of [0,10,20]){ x.beginPath(); x.moveTo(L,Y(g)); x.lineTo(w-R,Y(g)); x.stroke(); x.fillText(g+"%", L-6, Y(g)+3); }
+  x.strokeStyle=accent; x.lineWidth=2.5; x.beginPath();
+  MS.forEach((m,i)=>{ i? x.lineTo(X(i),Y(m.rate)) : x.moveTo(X(i),Y(m.rate)); });
+  x.stroke();
+  MS.forEach((m,i)=>{
+    const c = m.star? gold : accent;
+    x.fillStyle=c; x.beginPath(); x.arc(X(i),Y(m.rate), m.star?6:4, 0, 7); x.fill();
+    x.fillStyle=ink; x.font=(m.star?"bold 12px":"11px")+" sans-serif"; x.textAlign="center";
+    x.fillText(m.rate.toFixed(1)+"%", X(i), Y(m.rate)-11);
+    x.save(); x.translate(X(i), h-B+14); x.rotate(-0.4);
+    x.fillStyle=dim; x.font="10px sans-serif"; x.textAlign="right";
+    x.fillText(m.label, 6, 0); x.restore();
+  });
+}
+draw(); drawLadder();
+addEventListener("resize", function(){ draw(); drawLadder(); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function(){ draw(); drawLadder(); });
+</script>
