@@ -22,7 +22,7 @@ li{margin:3px 0}
 hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 </style></head><body>
 <h1>Strike Team — why are we stuck at 19%?</h1>
-<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 11:20 PM</b></div>
+<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 11:59 PM</b></div>
 
 <div class="card"><h2>Tonight’s parallel work</h2>
 <ul>
@@ -58,9 +58,12 @@ hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 <p><b>Search+eval is the right paradigm</b> — Foul Play just won the NeurIPS 2025 PokéAgent Challenge 50–14 over every RL and LLM entrant, so no pivot to transformers (which the literature shows are ~100% exploitable at our scale anyway). But FP has a <b>citable theoretical defect</b>: it uses Decoupled UCT for simultaneous turns, which provably mis-plays rock-paper-scissors-style subgames — and Pokémon is full of them (switch-reads, Protect mind-games, priority calls). The one academic paper on Pokémon specifically found information-set search beats FP-style determinization.</p>
 <p><b>Top 5 directions, ranked by strength-per-week:</b> (1) belief-conditioned safe exploitation in search (our belief system finally used as a weapon, not a sampler); (2) regret-matching selection at simultaneous nodes (attacks FP’s named defect); (3) NNUE-style small-net eval distilled from our nightly games (chess got +80–100 Elo from exactly this); (4) true information-set MCTS; (5) a Pluribus-style cheap abstracted blueprint (~$144 of compute bought superhuman poker). Each with its killer risk stated.</p></div>
 
-<div class="card"><h2>Chief Architect’s Verdict <span class="chip pending">SYNTHESIZING</span></h2>
-<p class="dim">Synthesis of all five lanes into a ranked build plan — diagnosis, designs, first build order. Lands with the morning report.</p>
-<div id="verdict"></div></div>
+<div class="card"><h2>Chief Architect’s Verdict <span class="chip filed">FILED</span></h2>
+<p><b>The diagnosis, one line: “We do not need a new brain. We need to stop lying to the brain about what it is fighting.”</b></p>
+<p>The AI is not out-thought — it is <b>misinformed</b>. Two input defects explain most of the matched-budget gap: <b>M1, the invented opponent</b> (independent most-likely-of-everything guesses build a composite monster no player has ever brought — est. 12–16 points) and <b>M2, the missing board</b> (sleep timers, choice-locks, Wish — all public info, all zeroed — est. 6–10 points). The judge is exonerated (ours is far better than FP’s and it doesn’t matter). The search paradigm is exonerated. A full RL/transformer rework is <b>explicitly rejected</b> — search+eval just won the field’s own championship 50–14 over every learned agent.</p>
+<p><b>The structural bet chosen: “The Exploiter.”</b> FP plays a generic, memoryless equilibrium — the one thing it structurally cannot do is know <i>this specific opponent</i> and punish them. We own every piece (belief engine, cross-battle memory, nightly retraining). Make the belief TRUE (the fix wave, building now) → prove it’s an ASSET (the no-belief test) → turn it into the weapon. Every stage has a written kill criterion.</p>
+<p><b>Tonight’s free experiment (running ~2am):</b> the belief system tested against NO belief system at all — one environment variable, two hours, and it measures the campaign’s founding assumption for the first time ever. <b>72-hour arc:</b> tonight Arm B → tomorrow the three-arm fix ladder (600 shared paired seeds) → day 2 read the wave’s effect → day 3 commit the two-week bet with kill criteria written first. “We are three days from knowing, not three weeks.”</p>
+<p class="dim">Full document: <a href="VERDICT.md" style="color:var(--blue)">VERDICT.md</a> (ranked mechanism table, rejected-options ledger, the complete build order).</p></div>
 
 <p class="dim">Live dashboards (home network only): <span class="mono">shelturai5090:8123</span> · Ledger: <a href="index.html" style="color:var(--blue)">campaign page</a></p>
 </body></html>
