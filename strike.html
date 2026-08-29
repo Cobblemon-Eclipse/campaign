@@ -22,7 +22,7 @@ li{margin:3px 0}
 hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 </style></head><body>
 <h1>Strike Team — why are we stuck at 19%?</h1>
-<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:55 PM</b></div>
+<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 11:20 PM</b></div>
 
 <div class="card"><h2>Tonight’s parallel work</h2>
 <ul>
@@ -43,19 +43,22 @@ hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 <p><b>And “belief is our advantage” has never been tested</b> — every mention in the docs is motivation for a sweep that never ran.</p>
 <p class="dim"><b>Already building tonight:</b> the coherent-world fix (stand the searched world on a real complete set + a legality filter that rejects impossible combos) — the candidate arm for tomorrow’s needle-mover sim. Plus the never-run no-belief counterfactual goes on the sim queue.</p></div>
 
-<div class="card"><h2>H3 · The Thousand Deviations <span class="chip pending">INVESTIGATING</span></h2>
-<p class="dim">Complete ledger of every place our wrapper differs from vanilla use of the same engine — with the measured cost of each, and a “vanilla-procedure” arm design to isolate them.</p>
-<div id="h3"></div></div>
+<div class="card"><h2>H3 · The Thousand Deviations <span class="chip filed">FILED — RANKING INVERTED</span></h2>
+<p class="dim">Do our wrapper’s differences from vanilla engine usage cost us?</p>
+<p><b>They’re real but third on the suspect list.</b> Full 13-item deviation ledger built. The decisive evidence: the exact bundle of our most-suspected wrapper changes (mask + tiebreak + prior) was A/B tested at 1,198 games — <b>null</b>. And the one truly pathological battle on record (a 999-turn infinite switch loop) traces to <b>H2’s incoherent worlds + the judge’s item/ability blindness</b>, not the wrapper: FP’s own decision rule, run on the same search output, picks the same doomed switch.</p>
+<p class="dim">Contributes: the “vanilla-procedure arm” design (isolates the never-tested deviations: budget-split, restriction, authority-stamping) + confirms H2/H4 as the lead suspects.</p></div>
 
-<div class="card"><h2>H4 · The Lossy World <span class="chip pending">INVESTIGATING</span></h2>
-<p class="dim">FP’s engine sees its full battle state; ours gets a copy that provably drops facts (sleep turns, Wish, volatile durations). Frequency × impact, ranked.</p>
-<div id="h4"></div></div>
+<div class="card"><h2>H4 · The Lossy World <span class="chip filed">FILED — CONFIRMED, FIXES FREE</span></h2>
+<p class="dim">Are we searching a lossier world than FP?</p>
+<p><b>Yes — on 100% of 39,803 real decisions.</b> Every single search ran blind to sleep counters, Wish, Future Sight, four of six volatile durations, and choice-locks — all facts FP tracks from <i>public</i> protocol lines (verified in its source), all facts whose wire columns <b>already exist in our engine, hard-coded to zero</b>. One is an outright legality bug: an Outrage-locked opponent is offered every move inside our tree. Several of the missing values are already computed elsewhere in our own mod and simply never handed to the search.</p>
+<p class="dim"><b>Already building tonight:</b> the population fix (sleep/rest, Wish/Future Sight, volatile durations, choice-lock read-back) — zero new wire bytes, zero ABI, always-on correctness class.</p></div>
 
-<div class="card"><h2>H5 · Outside the Box <span class="chip pending">INVESTIGATING</span></h2>
-<p class="dim">Internet research: information-set search (Pokémon is simultaneous-move — vanilla MCTS technically mishandles it), NNUE-style evaluators, belief particle filters, safe exploitation, what the strongest known bots actually do. Top 5 novel directions, ranked.</p>
-<div id="h5"></div></div>
+<div class="card"><h2>H5 · Outside the Box <span class="chip filed">FILED — 5 NOVEL DIRECTIONS</span></h2>
+<p class="dim">What does the world know that we don’t?</p>
+<p><b>Search+eval is the right paradigm</b> — Foul Play just won the NeurIPS 2025 PokéAgent Challenge 50–14 over every RL and LLM entrant, so no pivot to transformers (which the literature shows are ~100% exploitable at our scale anyway). But FP has a <b>citable theoretical defect</b>: it uses Decoupled UCT for simultaneous turns, which provably mis-plays rock-paper-scissors-style subgames — and Pokémon is full of them (switch-reads, Protect mind-games, priority calls). The one academic paper on Pokémon specifically found information-set search beats FP-style determinization.</p>
+<p><b>Top 5 directions, ranked by strength-per-week:</b> (1) belief-conditioned safe exploitation in search (our belief system finally used as a weapon, not a sampler); (2) regret-matching selection at simultaneous nodes (attacks FP’s named defect); (3) NNUE-style small-net eval distilled from our nightly games (chess got +80–100 Elo from exactly this); (4) true information-set MCTS; (5) a Pluribus-style cheap abstracted blueprint (~$144 of compute bought superhuman poker). Each with its killer risk stated.</p></div>
 
-<div class="card"><h2>Chief Architect’s Verdict <span class="chip pending">AWAITING ALL BRIEFS</span></h2>
+<div class="card"><h2>Chief Architect’s Verdict <span class="chip pending">SYNTHESIZING</span></h2>
 <p class="dim">Synthesis of all five lanes into a ranked build plan — diagnosis, designs, first build order. Lands with the morning report.</p>
 <div id="verdict"></div></div>
 
