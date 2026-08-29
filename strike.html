@@ -22,7 +22,7 @@ li{margin:3px 0}
 hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 </style></head><body>
 <h1>Strike Team — why are we stuck at 19%?</h1>
-<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:20 PM</b></div>
+<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:35 PM</b></div>
 
 <div class="card"><h2>Tonight’s parallel work</h2>
 <ul>
@@ -31,9 +31,11 @@ hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 <li><b>K-sweep + budget-sweep drivers</b> — built ready-to-fire; K-sweep launches when cycle 4 frees the box.</li>
 </ul></div>
 
-<div class="card"><h2>H1 · The Judge <span class="chip pending">INVESTIGATING</span></h2>
-<p class="dim">Is Foul Play’s position-evaluator simply better than our trained one? Measured head-to-head on identical positions.</p>
-<div id="h1"></div></div>
+<div class="card"><h2>H1 · The Judge <span class="chip filed">FILED — HYPOTHESIS REJECTED</span></h2>
+<p class="dim">Is Foul Play’s evaluator better than ours?</p>
+<p><b>No — it’s much worse, and that’s the finding.</b> FP’s judge is a ~16-term hand-written heuristic (flat +10 for “holding any item”, no move knowledge, no speed awareness) scoring <b>AUC 0.54 — near coin-flip — vs our 0.75</b>. FP structurally can’t swap it (no seam in the published engine). We already run the strictly better judge and lose anyway. An old isolated experiment (same searcher, judge swapped, 600 paired games each) produced <b>bit-identical win counts</b> — the eval axis is closed as a primary lane.</p>
+<p><b>⚠ The lead it produced instead:</b> FP’s source shows it spawns <b>2–4 parallel search processes — each with the FULL 100ms — on high-uncertainty turns</b> (team preview, few revealed moves). On the turns that decide games, “equal budget” may quietly be 2–4× in FP’s favor. Directly testable in one run. Also: our 214-feature judge reads <i>zero</i> item/ability information — even FP’s dumb heuristic reads Boots and Magic Guard.</p>
+<p class="dim">Recommends: (1) the never-run decomposition of the +8pp stack; (2) measure/equalize FP’s per-phase world count; (3) stop investing in judge tuning until items/abilities reach the features.</p></div>
 
 <div class="card"><h2>H2 · The Belief Layer <span class="chip pending">INVESTIGATING</span></h2>
 <p class="dim">Our “advantage” — inferring the opponent’s hidden sets — might be feeding the search fantasy worlds. Measuring how often the world we searched matched what the opponent actually revealed.</p>
