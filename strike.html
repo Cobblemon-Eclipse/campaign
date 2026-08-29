@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="120">
+<title>Strike Team</title>
+<style>
+:root{--bg:#0c1016;--card:#151b24;--edge:#26303d;--ink:#dde5ee;--dim:#8494a5;--blue:#54a8ff;--green:#43cf83;--amber:#e2a93b;--red:#e06157}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55;padding:20px 14px 60px;max-width:720px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--edge);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h2{font-size:15px;margin-bottom:8px}
+.chip{display:inline-block;font-size:11px;padding:2px 9px;border-radius:99px;margin-left:6px;vertical-align:middle}
+.pending{background:#3a3320;color:var(--amber)}
+.filed{background:#173226;color:var(--green)}
+.mono{font-variant-numeric:tabular-nums}
+p{margin:8px 0;color:var(--ink)}
+.dim{color:var(--dim);font-size:13px}
+ul{margin:6px 0 6px 20px}
+li{margin:3px 0}
+hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
+</style></head><body>
+<h1>Strike Team — why are we stuck at 19%?</h1>
+<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:20 PM</b></div>
+
+<div class="card"><h2>Tonight’s parallel work</h2>
+<ul>
+<li><b>Flywheel cycle 4</b> — 3,450 vs-FP games on both boxes; gate verdict ~2 AM. Cycle 3 missed promotion by 0.00014 and flipped the human-data strata positive for the first time.</li>
+<li><b>Switch model Stage 1</b> — training tonight, scored against 7 preregistered gates.</li>
+<li><b>K-sweep + budget-sweep drivers</b> — built ready-to-fire; K-sweep launches when cycle 4 frees the box.</li>
+</ul></div>
+
+<div class="card"><h2>H1 · The Judge <span class="chip pending">INVESTIGATING</span></h2>
+<p class="dim">Is Foul Play’s position-evaluator simply better than our trained one? Measured head-to-head on identical positions.</p>
+<div id="h1"></div></div>
+
+<div class="card"><h2>H2 · The Belief Layer <span class="chip pending">INVESTIGATING</span></h2>
+<p class="dim">Our “advantage” — inferring the opponent’s hidden sets — might be feeding the search fantasy worlds. Measuring how often the world we searched matched what the opponent actually revealed.</p>
+<div id="h2"></div></div>
+
+<div class="card"><h2>H3 · The Thousand Deviations <span class="chip pending">INVESTIGATING</span></h2>
+<p class="dim">Complete ledger of every place our wrapper differs from vanilla use of the same engine — with the measured cost of each, and a “vanilla-procedure” arm design to isolate them.</p>
+<div id="h3"></div></div>
+
+<div class="card"><h2>H4 · The Lossy World <span class="chip pending">INVESTIGATING</span></h2>
+<p class="dim">FP’s engine sees its full battle state; ours gets a copy that provably drops facts (sleep turns, Wish, volatile durations). Frequency × impact, ranked.</p>
+<div id="h4"></div></div>
+
+<div class="card"><h2>H5 · Outside the Box <span class="chip pending">INVESTIGATING</span></h2>
+<p class="dim">Internet research: information-set search (Pokémon is simultaneous-move — vanilla MCTS technically mishandles it), NNUE-style evaluators, belief particle filters, safe exploitation, what the strongest known bots actually do. Top 5 novel directions, ranked.</p>
+<div id="h5"></div></div>
+
+<div class="card"><h2>Chief Architect’s Verdict <span class="chip pending">AWAITING ALL BRIEFS</span></h2>
+<p class="dim">Synthesis of all five lanes into a ranked build plan — diagnosis, designs, first build order. Lands with the morning report.</p>
+<div id="verdict"></div></div>
+
+<p class="dim">Live dashboards (home network only): <span class="mono">shelturai5090:8123</span> · Ledger: <a href="index.html" style="color:var(--blue)">campaign page</a></p>
+</body></html>
