@@ -22,7 +22,7 @@ li{margin:3px 0}
 hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 </style></head><body>
 <h1>Strike Team — why are we stuck at 19%?</h1>
-<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:35 PM</b></div>
+<div class="sub">Root-cause investigation · owner mandate: “even if the answer is reworking the entire AI — don’t carbon-copy FP, build our own better thing.” Page auto-refreshes every 2 min. Last update: <b>Aug 28, 10:55 PM</b></div>
 
 <div class="card"><h2>Tonight’s parallel work</h2>
 <ul>
@@ -37,9 +37,11 @@ hr{border:0;border-top:1px solid var(--edge);margin:14px 0}
 <p><b>⚠ The lead it produced instead:</b> FP’s source shows it spawns <b>2–4 parallel search processes — each with the FULL 100ms — on high-uncertainty turns</b> (team preview, few revealed moves). On the turns that decide games, “equal budget” may quietly be 2–4× in FP’s favor. Directly testable in one run. Also: our 214-feature judge reads <i>zero</i> item/ability information — even FP’s dumb heuristic reads Boots and Magic Guard.</p>
 <p class="dim">Recommends: (1) the never-run decomposition of the +8pp stack; (2) measure/equalize FP’s per-phase world count; (3) stop investing in judge tuning until items/abilities reach the features.</p></div>
 
-<div class="card"><h2>H2 · The Belief Layer <span class="chip pending">INVESTIGATING</span></h2>
-<p class="dim">Our “advantage” — inferring the opponent’s hidden sets — might be feeding the search fantasy worlds. Measuring how often the world we searched matched what the opponent actually revealed.</p>
-<div id="h2"></div></div>
+<div class="card"><h2>H2 · The Belief Layer <span class="chip filed">FILED — SMOKING GUN CANDIDATE</span></h2>
+<p class="dim">Is our opponent-inference feeding the search fantasy worlds?</p>
+<p><b>Yes — measurably, badly.</b> At matched one-world search (FP’s multi-world mode is off in our benchmarks — same engine, same budget, same K), the difference is <i>what the one world is made of</i>. FP samples one <b>complete, real, internally-consistent</b> opponent set from usage data. We assemble ours from <b>three independent guesses</b> (ability, item, moves picked separately) — which builds rules-violating opponents (Assault Vest Primarina running Calm Mind, found repeatedly in tonight’s corpus) and, decisively: <b>the moveset we searched was missing a move the opponent later actually used in ~41% of contested decisions.</b> Two of five hard decisions, we deep-searched a fantasy.</p>
+<p><b>And “belief is our advantage” has never been tested</b> — every mention in the docs is motivation for a sweep that never ran.</p>
+<p class="dim"><b>Already building tonight:</b> the coherent-world fix (stand the searched world on a real complete set + a legality filter that rejects impossible combos) — the candidate arm for tomorrow’s needle-mover sim. Plus the never-run no-belief counterfactual goes on the sim queue.</p></div>
 
 <div class="card"><h2>H3 · The Thousand Deviations <span class="chip pending">INVESTIGATING</span></h2>
 <p class="dim">Complete ledger of every place our wrapper differs from vanilla use of the same engine — with the measured cost of each, and a “vanilla-procedure” arm design to isolate them.</p>
