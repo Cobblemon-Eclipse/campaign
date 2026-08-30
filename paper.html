@@ -1,0 +1,176 @@
+<title>From Search to Self-Play</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#fbfcfd; --ink:#16181d; --ink2:#565b66; --accent:#2a78d6;
+  --rule:#e3e7ed; --codebg:#f2f5f9; --pend:#b07b18; --pendbg:#faf3e3;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#17191d; --ink:#f2f4f7; --ink2:#a6adb8; --accent:#3987e5;
+    --rule:#2c3038; --codebg:#1f2329; --pend:#d9a53a; --pendbg:#2a2313;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#17191d; --ink:#f2f4f7; --ink2:#a6adb8; --accent:#3987e5;
+  --rule:#2c3038; --codebg:#1f2329; --pend:#d9a53a; --pendbg:#2a2313;
+}
+body{background:var(--ground); color:var(--ink); font-family:"Source Serif 4",Georgia,serif;
+  font-size:17px; line-height:1.65; margin:0; padding:0 20px;}
+.page{max-width:46rem; margin:0 auto; padding:56px 0 96px;}
+.eyebrow{font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:12px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 14px;}
+h1{font-size:34px; line-height:1.22; font-weight:700; margin:0 0 18px; text-wrap:balance;}
+.meta{font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:13px; color:var(--ink2);
+  display:flex; flex-wrap:wrap; gap:6px 18px; margin:0 0 8px;}
+.meta b{color:var(--ink); font-weight:600;}
+.notice{font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:13px; color:var(--ink2);
+  border:1px solid var(--rule); border-radius:6px; padding:10px 14px; margin:22px 0 40px;}
+h2{font-size:22px; font-weight:700; margin:52px 0 14px; text-wrap:balance;}
+h2 .no, h3 .no{color:var(--accent); font-weight:600; margin-right:10px; font-variant-numeric:tabular-nums;}
+h3{font-size:17px; font-weight:600; margin:32px 0 8px;}
+p{margin:0 0 16px;}
+.abstract{border-left:3px solid var(--accent); padding-left:22px; margin:0 0 8px;}
+.abstract p{font-size:16px;}
+ul,ol{margin:0 0 16px; padding-left:26px;}
+li{margin-bottom:8px;}
+strong{font-weight:600;}
+em{font-style:italic;}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86em;
+  background:var(--codebg); border-radius:4px; padding:1px 5px;}
+.tablewrap{overflow-x:auto; margin:20px 0 24px;}
+table{border-collapse:collapse; width:100%; font-family:"IBM Plex Sans",system-ui,sans-serif;
+  font-size:14px; font-variant-numeric:tabular-nums;}
+th{font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink2);
+  font-weight:600; text-align:left; padding:8px 14px 8px 0; border-bottom:1px solid var(--ink2);}
+td{padding:8px 14px 8px 0; border-bottom:1px solid var(--rule); vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+.pending{font-family:"IBM Plex Sans",system-ui,sans-serif; display:inline-block; font-size:11px;
+  font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--pend);
+  background:var(--pendbg); border-radius:4px; padding:2px 8px; white-space:nowrap;}
+.rule{border:none; border-top:1px solid var(--rule); margin:48px 0;}
+.footer{font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:13px; color:var(--ink2);
+  margin-top:56px; border-top:1px solid var(--rule); padding-top:18px;}
+a{color:var(--accent);}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+</style>
+<div class="page">
+<p class="eyebrow">Cobblemon Eclipse · Battle AI Research</p>
+<h1>From Search to Self-Play: Building a Real-Time Pokémon Battle AI Under a Production Latency Budget</h1>
+<div class="meta">
+  <span><b>Status</b> working draft</span>
+  <span><b>Updated</b> 2026-08-30</span>
+  <span><b>Distribution</b> private, shared at the author's discretion</span>
+</div>
+<div class="notice">Sections marked <span class="pending">pending</span> await the Run&nbsp;1/1b readout (2026-08-31) and the scaled run. This page tracks <code>docs/paper/DRAFT.md</code> and is updated as results land.</div>
+
+<h2>Abstract</h2>
+<div class="abstract">
+<p>We describe the design, measurement discipline, and initial results of a competitive Pokémon battle AI built for deployment on a production Minecraft server network, where the controlling constraint is not maximum strength but <em>strength per millisecond</em>: the agent must make decisions in single-digit milliseconds on CPU threads shared with 500+ concurrent players. We report two phases. Phase&nbsp;1 built a classical system — Monte-Carlo tree search over a Rust battle engine with a calibrated linear evaluation and usage-prior policy — that reached ≈20% win rate against Foul&nbsp;Play (a strong open search engine, ≈1800–1930 Elo) at 100&nbsp;ms/decision, then plateaued: preregistered experiments showed the gains from additional labels (+0.6pp from 1.1M teacher decisions), additional search budget (≈+1–2pp per 8× time), and additional feature engineering (≈+2pp per wave) had all collapsed, while a single controlled change of <em>function class</em> — replacing the linear policy prior with a small set-conditional network on identical inputs and labels — was worth +7.7pp of teacher agreement. We interpreted this as a capacity-and-experience limit rather than a tuning shortfall.</p>
+<p>Phase&nbsp;2 rebuilt the system around large-scale self-play reinforcement learning in the style of Jaxcalibur: a vendored Rust simulator verified against the official Pokémon Showdown implementation by differential testing (turn agreement raised 31.1% → 79.6% across a documented patch ledger), a masked 60-token observation with a machine-checked no-information-leakage property, and PPO self-play training a 2.5–8.1M-parameter transformer at ≈5,000 decisions/second on one H100. A transfer harness plays training checkpoints against Foul&nbsp;Play in real Showdown battles through the <em>same</em> encoder code path used in training, with a cross-path golden test (3.37M values, one explained divergence channel) and a public ledger of approximations. On day one, transfer win rate against full-strength Foul&nbsp;Play rose from 2% (untrained control) to 9% (3 GPU-hours) to 17% (4.5 GPU-hours) — approaching the Phase-1 system's career result at 1/12 the decision latency and with no search. <span class="pending">pending: final curves, size ablation, scaled run</span></p>
+<p>A secondary contribution is methodological: the entire system — engine patches, trainers, harnesses, and the experiments themselves — was written by AI coding agents under human direction, with correctness maintained not by human code review but by an adversarial verification protocol described in §7. We report the defects this protocol caught, including three that would have silently invalidated headline results.</p>
+</div>
+
+<h2><span class="no">1</span>Introduction</h2>
+<h3>1.1 The product constraint</h3>
+<p>Cobblemon Eclipse operates Minecraft servers where players battle AI-controlled trainers using Cobblemon, a faithful implementation of Pokémon battle mechanics. The design target is 500+ concurrent players on shared region-worker threads. This inverts the usual competitive-AI budget: Foul&nbsp;Play, the strongest open Pokémon engine, spends ≈100&nbsp;ms of a dedicated core per decision — one battle per core. At 500 concurrent battles that is a non-starter. Every architectural decision in this project traces to the question: <em>maximum strength per millisecond on a shared-thread budget</em>, never "maximum strength."</p>
+<h3>1.2 The benchmark ladder</h3>
+<p>Strength is measured against a ladder of opponents, each adopted when the previous one stopped predicting real-world performance: a baseline open bot (Abyssal; beaten 79.4%), an LLM-agent system (PokeChamp; beaten 14–5 pooled), human ladder players (1W–15L — the honest gap), and finally Foul&nbsp;Play itself, whose defeat of skilled humans makes it the standing altimeter: ≈17% ≈ 280 Elo below FP; ≈30% ≈ strong ladder play; ≈50% ≈ competitive with the best humans. All results in this paper are against <strong>full-strength</strong> Foul&nbsp;Play; results against time-reduced FP are used only for triage and never reported as progress (a standing "grade-inflation guard," adopted after a time-starved win of +4pp failed to survive full strength).</p>
+<h3>1.3 Two phases</h3>
+<p>Phase&nbsp;1 (§3–4) is a classical search system, developed through nine audited improvement rounds. Phase&nbsp;2 (§5–6) is a from-scratch self-play RL system, adopted after preregistered experiments located the Phase-1 plateau in representation and experience volume rather than in any tunable parameter. §7 describes the verification protocol that substituted for human review. §8 reports results. §9 discusses limitations and the road to doubles and National Dex formats.</p>
+
+<h2><span class="no">2</span>Related Work</h2>
+<ul>
+<li><strong>Foul Play</strong> — expectiminimax-style search over poke-engine with hand-tuned evaluation; the strongest open traditional engine and this project's reference opponent.</li>
+<li><strong>PokeChamp / LLM agents</strong> — minimax over LLM-proposed actions; strong but orders of magnitude too slow and too expensive per decision for our deployment target.</li>
+<li><strong>Jaxcalibur (2026)</strong> — the first bot at top-human level in gen9 random battles (2557 Elo, #1 ladder): a pure-JAX simulator, PPO self-play at ≈100M games/week on one H100, an 8.5M-parameter transformer with matchup tokens and an opponent-action auxiliary head, and the striking finding that inference-time search adds only +100–150 Elo on top of the trained network's intuition. Phase&nbsp;2 of this project is an independent implementation of this recipe with two deliberate differences: a CPU-side Rust simulator verified by differential testing against Showdown (§5.2) instead of a bespoke GPU simulator, and a transfer-measurement harness that runs <em>during</em> training (§6.3).</li>
+<li><strong>AlphaZero and successors</strong> — establish the self-play paradigm; we follow the now-standard observation that a policy trained by self-play carries most of the strength, with search as a multiplier rather than the substrate.</li>
+</ul>
+<p><span class="pending">todo</span> formal citations; Metamon and other Pokémon-RL work; differential-testing literature.</p>
+
+<h2><span class="no">3</span>Phase 1: The Search System</h2>
+<p>A summary; the full engineering record is the project's intelligence audit (775 numbered findings at time of writing).</p>
+<ul>
+<li><strong>Engine.</strong> A vendored fork of poke-engine (Rust), extended with an "eclipse fidelity" option module (§5.2) and a wire protocol to the JVM game server.</li>
+<li><strong>Search.</strong> MCTS with determinized hidden information (K sampled "worlds"), a calibrated linear-logistic leaf evaluator (hazards, boosts, KO and HP terms; AUC 0.834, calibration verified against outcomes), and a usage-frequency policy prior; ≈100&nbsp;ms budget, ≈50k iterations/decision.</li>
+<li><strong>Result.</strong> ≈20% vs full-strength Foul&nbsp;Play at pivot time; deployed behind config gates as the server's strongest available brain.</li>
+</ul>
+
+<h2><span class="no">4</span>Why We Pivoted: Locating the Plateau</h2>
+<p>Four preregistered findings, in sequence:</p>
+<ol>
+<li><strong>The budget curve was flat.</strong> 100 → 800&nbsp;ms of search bought ≈+1–2pp. Iterations were not the binding constraint (zero deadline hits; win rate flat in iterations).</li>
+<li><strong>Labels were not the constraint.</strong> Distilling 1.11M Foul&nbsp;Play teacher decisions into the shipped linear prior moved teacher agreement +0.56pp (bar: +10pp; P(clears)=0), and a human-refit control attributed approximately none of it to the corpus. The prior was <em>representation-limited</em>, not label-limited.</li>
+<li><strong>Capacity was the constraint.</strong> Holding labels and the 41 input columns fixed and changing only the function class — a set-conditional network scoring each candidate in the context of the others — was worth <strong>+7.14pp</strong> top-1 teacher agreement (+7.70pp paired, [+7.24,&nbsp;+8.16], on 129,428 held-out decisions). The 2×2 ablation showed the gain requires capacity <em>and</em> set context jointly; either alone read null.</li>
+<li><strong>Offline agreement is a screening metric.</strong> Routed through the search as a root prior, the +7.7pp converted to ≤+4pp of win rate (best estimate +1.8). We adopted a standing rule: preregister behavioural endpoints (paired win rate against a real opponent); offline agreement only screens.</li>
+</ol>
+<p>Combined with Jaxcalibur's public result, the conclusion was that strength lives in (capacity × experience volume), and our 3,000-game corpora were four orders of magnitude short. The pivot decision was made 2026-08-30.</p>
+
+<h2><span class="no">5</span>Phase 2: The Self-Play System</h2>
+<h3>5.1 Architecture</h3>
+<p>A 60-token observation per decision: 1 field token, 2 active tokens, 5 candidate-move tokens, 6&nbsp;+&nbsp;6 team tokens, 16 recent-event history tokens, 24 matchup tokens (per-pair damage estimates, injected mid-network). Eleven categorical id slots (species, item, ability, move, types, tera, status) over vocabularies extracted from the engine's own enums with a committed-cache cross-check; 269 float channels. The network is a pre-norm transformer (default 256/1024/8, 8.1M parameters; a 128/512/8, 2.5M variant is under ablation) with four heads: policy (14 actions), value, opponent-next-action (auxiliary), and opponent-set auxiliaries. Training is PPO, reward 1/0 undiscounted, entropy and KL-to-uniform regularisation, following the Jaxcalibur recipe.</p>
+<h3>5.2 The simulator, and how we know it tells the truth</h3>
+<p>The training environment is the vendored Rust engine — the same one Phase&nbsp;1 searched over — which raises the central question of any home-grown simulator: <em>is the physics right?</em> Our answer is continuous differential testing against the official Pokémon Showdown implementation, pinned at a fixed commit as the oracle:</p>
+<ul>
+<li>A Showdown-side dumper emits per-turn state fixtures from real random battles; a comparator drives the Rust engine through the same battles and classifies every divergence by mechanic into a registry of named classes, each carrying a status (OPEN / APPROX / UNSUPPORTED) and a size.</li>
+<li>Engine corrections are made as a numbered, hash-guarded patch ledger over the vendored source (17 patches at time of writing), each patch either unconditional (pure correctness) or gated behind a fidelity option when upstream's own tests pin the old behaviour.</li>
+<li>Headline: turn agreement 31.1% (shipped configuration) → 68.2% → <strong>79.6%</strong> with fidelity options on — stable across three independent battle draws (latest: 980 battles, 65,321 turns; 95% CI 79.25–79.87). Reward-field agreement (win/loss/HP outcomes) is 88.8–89.3%. The residual is dominated by damage-roll residue after outcome-forcing (8.7%), a PP decrement class (3.4%), and two unmodelled volatile classes; the ranked table drives the next patch wave.</li>
+<li>Notable finding for practitioners: <strong>two of the five originally-open divergence classes were defects in the measurement harness, not the engine</strong> — a fainted-Pokémon projection and a Tera-typing schema gap. A conformance number is only as good as its comparator, and the comparator needs its own tests.</li>
+</ul>
+<h3>5.3 Hidden information, machine-checked</h3>
+<p>Pokémon is an imperfect-information game; a self-play agent that trains on information a real opponent would hide posts beautiful curves and cannot transfer. The environment therefore carries a reveal tracker (what each seat has legitimately observed) publishing eleven mask arrays, and the encoder consumes only the masked view. The property is enforced by tests, not convention: two battles differing in exactly one hidden fact must produce byte-identical viewer tokens and differing owner tokens over randomized populations (Python and Rust twins of the same argument), and the leakage suite is a CI gate wired to the exact files a leak would be written in. Three real leaks were found and closed this way during construction (bench-HP, a declared-but-dead move, and a team-HP channel bypassing the mask).</p>
+<h3>5.4 Throughput and cost</h3>
+<p>The full-fidelity environment (masked observation, real random-battle team pool pinned to a set-table commit, sampled damage rolls) runs at ≈327k transitions/second on the sims box — 2.2× cheaper than enumerating all 16 damage rolls per branch would be at equal fidelity (a 586× difference on that axis alone) and 3.3× above the training contract's floor. On one H100 SXM the full loop (1,024 parallel battles, batched inference for both seats, PPO update) sustains ≈4,500–5,500 samples/second — ≈1,000 completed battles per training iteration of 65,536 samples. Day-one cost: ≈$160 for two 24-hour runs.</p>
+
+<h2><span class="no">6</span>Measuring Transfer Honestly</h2>
+<h3>6.1 The adapter</h3>
+<p>Self-play curves cannot certify strength (a net can master its simulator's quirks). The transfer harness plays training checkpoints in <em>real</em> Showdown battles via poke-env, against Foul&nbsp;Play at full strength, with the network thinking for ≈8&nbsp;ms on CPU and no search. The design rule: the adapter builds the environment-contract buffers and then calls <strong>the same code objects</strong> the trainer uses (encoder, matchup, event derivation) — the only place the training and serving paths can diverge is one translation file, which is exactly where the testing effort concentrates.</p>
+<h3>6.2 The golden, and the approximations ledger</h3>
+<p>A cross-path golden encodes 200 generated positions through both paths and compares 3,372,600 values; at time of writing the tolerated divergence is 70 values (0.0021%), all on one explained matchup channel, pinned by an assertion that fails if the count drifts or a new divergence class appears (mutation-tested). Everything the adapter cannot know or chooses to mirror from training is a numbered approximation (A1–A13) in a public ledger, each with its expected cost and a measurement plan; the two capable of moving results (opponent slot compaction; inferred opponent actions, unobserved on ≈55% of decisions) are counted in every series report.</p>
+<h3>6.3 The treadmill</h3>
+<p>During training, a loop picks up each mirrored checkpoint (≈30-minute cadence) and plays a 100-game series against full-strength Foul&nbsp;Play, plus a 50-game untrained-control series as the floor, writing to the same dashboard as every other experiment. The protocol is two-tier by design: hourly 100-game series read the <em>slope</em> (±≈7pp), and a 300–500-game soak on a rented CPU pod certifies any number that must <em>count</em>. Measurement lags the live network by ≈100 iterations (≈45 minutes), so the plotted curve systematically understates the current net.</p>
+<h3>6.4 Withdrawn numbers</h3>
+<p>Two early results were withdrawn by our own verification before anyone believed them, and we report them as method: (i)&nbsp;the first series (5%) was measured through an adapter that dropped ≈110 "special" moves (Protect, Knock Off, Recover, hazards, most status) from the agent's own moveset — poke-env's <code>Pokemon.moves</code> never stores them; only 183 of 871 move requests reached the net with all four slots, and all-special movesets produced illegal-mask fallbacks. (ii)&nbsp;a conformance report's headline was measured with a driver built before one of the five fixes it reported. Both defects were caught by adversarial re-derivation (§7), both fixes carry regression tests, and the corrected numbers replaced the originals within hours.</p>
+
+<h2><span class="no">7</span>Verification Without Human Review</h2>
+<p>This system was built by AI coding agents; no human reads the diffs. The safety net is a protocol, applied to every change wave:</p>
+<ol>
+<li><strong>Disjoint ownership.</strong> Concurrent agents own disjoint file sets; collisions are sequenced, not merged.</li>
+<li><strong>One adversarial verifier per deliverable.</strong> Before any pull request is armed to merge, an independent agent is instructed to <em>break</em> its claims — re-deriving arithmetic from committed artifacts, mutation-testing new tests for vacuity, byte-comparing vendored code against upstream, probing for information leaks and encoding drifts — and to return CONFIRMED/REFUTED verdicts with file-line evidence. A green build is treated as necessary, never sufficient.</li>
+<li><strong>Preregistration and kill clauses.</strong> Experiments state their endpoints and abort criteria before running; two lanes this campaign were killed by their own preregistered clauses, and one abort criterion was itself corrected when measurement showed its threshold sat inside the untrained noise band.</li>
+<li><strong>Committed evidence.</strong> Any number quoted in a report must re-derive from artifacts in the repository; forensic samples too large to regenerate are committed and covered by tests that fail if their arithmetic drifts.</li>
+</ol>
+<p>Defects caught by this protocol in the reporting period include: the two withdrawn numbers of §6.4; a CI job left bodiless by a merge (which would have disabled the whole pipeline repo-wide); a trainer abort criterion that detected NaN but not infinity; an approximations-ledger identifier collision; six stale numbers in a conformance report contradicted by the JSONs beside them; and an unverified assumption about poke-env's own-side reveal semantics whose failure mode was silently corrupted history channels in every real game.</p>
+
+<h2><span class="no">8</span>Results</h2>
+<h3>8.1 Day one <span class="pending">preliminary</span></h3>
+<p>Training run 1 (8.1M parameters, one H100 SXM, gen9 random battles, masked observations, real set-table teams, sampled damage): league win rate vs a frozen self-snapshot holds 57–65% against an ever-advancing snapshot (compounding improvement); entropy stable ≈0.85–0.90. Transfer vs full-strength Foul&nbsp;Play, net-only at ≈8&nbsp;ms/decision:</p>
+<div class="tablewrap">
+<table>
+<tr><th>checkpoint</th><th>GPU-hours</th><th>vs Foul Play (100 games)</th><th>95% CI</th></tr>
+<tr><td>untrained control</td><td>0</td><td>2.0%</td><td>[0.4, 10.5]</td></tr>
+<tr><td>iteration 300</td><td>≈3</td><td>9.0%</td><td>[4.8, 16.2]</td></tr>
+<tr><td>iteration 500</td><td>≈4.5</td><td><strong>17.0%</strong></td><td>[10.9, 25.5]</td></tr>
+<tr><td>…</td><td></td><td><span class="pending">pending: overnight curve</span></td><td></td></tr>
+</table>
+</div>
+<p>Run 1b (2.5M parameters), same protocol: untrained floor 0.0% [0.0,&nbsp;7.1]; iteration 200 (≈2 GPU-hours) <strong>12.0%</strong> [7.0,&nbsp;19.8] — the first checkpoint whose interval separates from its floor, i.e. the first statistically clean evidence that self-play strength transfers to real Showdown play at all. Notably the quarter-size net reached it earlier in wall-clock terms.</p>
+<p>For reference, the Phase-1 search system's career result is ≈20% at 100&nbsp;ms/decision; iteration 500's interval already overlaps it.</p>
+<h3>8.2 Size ablation <span class="pending">pending</span></h3>
+<p>Run 1b trains a 2.5M-parameter variant (¼ trunk) on an identical environment and deadline; it sustains ≈20% higher sample throughput. Curves and transfer lines to be compared at the shared cutoff.</p>
+<h3>8.3 Scaled run <span class="pending">pending</span></h3>
+
+<h2><span class="no">9</span>Limitations and Future Work</h2>
+<ul>
+<li><strong>Conformance is 79.6%, not 99.9%.</strong> One turn in five still diverges from Showdown somewhere; the ranked residual (damage-roll residue, PP, Curse, duration counters) bounds how much simulator error the net can absorb, and closing it is ongoing.</li>
+<li><strong>The transfer measurement carries known approximations</strong> (A3, A9, A13 open halves), all counted per series; tightening A9 (opponent-action inference) is the highest-value fix — its current rule is defeated by the measurement fork never decrementing PP.</li>
+<li><strong>Formats.</strong> Everything here is gen9 random battles. OU and National Dex need team pools and preview handling; <strong>doubles</strong> — the eventual differentiator, since every known battle AI including Foul&nbsp;Play is singles-only — requires engine extension before any training run.</li>
+<li><strong>Serving.</strong> The production path (a Rust or JVM forward pass inside the game server, the datapack→engine-tables pipeline for custom content) is designed but not yet shipped.</li>
+<li><strong>Hybridization.</strong> The Phase-1 search machinery over a Phase-2 network is the strongest configuration for compute-unconstrained battles (gym leaders); Jaxcalibur's +100–150 Elo search increment suggests the ordering: net first, search as garnish.</li>
+</ul>
+
+<hr class="rule">
+<p><strong>Acknowledgements.</strong> Built by Claude coding agents (Anthropic) under the direction of the Cobblemon Eclipse operator, on infrastructure spanning a local sims box and rented RunPod GPUs. Foul&nbsp;Play, poke-engine, Pokémon Showdown, and poke-env are the giants whose shoulders this stands on.</p>
+
+<div class="footer">Working draft · maintained from <code>docs/paper/DRAFT.md</code> (branch <code>claude/paper</code>) · numbers marked pending update after the 2026-08-31 readout · private distribution</div>
+</div>
