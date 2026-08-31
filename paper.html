@@ -69,16 +69,17 @@ a{color:var(--accent);}
 <h1>From Search to Self-Play: Building a Real-Time Pokémon Battle AI Under a Production Latency Budget</h1>
 <div class="meta">
   <span><b>Status</b> working draft</span>
-  <span><b>Updated</b> 2026-08-30</span>
+  <span><b>Updated</b> 2026-08-31</span>
   <span><b>Distribution</b> private, shared at the author's discretion</span>
 </div>
-<div class="notice">Sections marked <span class="pending">pending</span> await the Run&nbsp;1/1b readout (2026-08-31) and the scaled run. This page tracks <code>docs/paper/DRAFT.md</code> and is updated as results land.</div>
+<div class="notice">Run&nbsp;1 and Run&nbsp;1b are complete and reported in §8.2–8.4. Sections still marked <span class="pending">pending</span> await the 300-game soaks (in flight at time of writing) and the week-long scaled run. This page tracks <code>docs/paper/DRAFT.md</code> and is updated as results land.</div>
 
 <h2>Abstract</h2>
 <div class="abstract">
 <p>We describe the design, measurement discipline, and initial results of a competitive Pokémon battle AI built for deployment on a production Minecraft server network, where the controlling constraint is not maximum strength but <em>strength per millisecond</em>: the agent must make decisions in single-digit milliseconds on CPU threads shared with 500+ concurrent players. We report two phases. Phase&nbsp;1 built a classical system — Monte-Carlo tree search over a Rust battle engine with a calibrated linear evaluation and usage-prior policy — that reached ≈20% win rate against Foul&nbsp;Play (a strong open search engine, ≈1800–1930 Elo) at 100&nbsp;ms/decision, then plateaued: preregistered experiments showed the gains from additional labels (+0.6pp from 1.1M teacher decisions), additional search budget (≈+1–2pp per 8× time), and additional feature engineering (≈+2pp per wave) had all collapsed, while a single controlled change of <em>function class</em> — replacing the linear policy prior with a small set-conditional network on identical inputs and labels — was worth +7.7pp of teacher agreement. We interpreted this as a capacity-and-experience limit rather than a tuning shortfall.</p>
-<p>Phase&nbsp;2 rebuilt the system around large-scale self-play reinforcement learning in the style of Jaxcalibur: a vendored Rust simulator verified against the official Pokémon Showdown implementation by differential testing (turn agreement raised 31.1% → 79.6% across a documented patch ledger), a masked 60-token observation with a machine-checked no-information-leakage property, and PPO self-play training a 2.5–8.1M-parameter transformer at ≈5,000 decisions/second on one H100. A transfer harness plays training checkpoints against Foul&nbsp;Play in real Showdown battles through the <em>same</em> encoder code path used in training, with a cross-path golden test (3.37M values, one explained divergence channel) and a public ledger of approximations. On day one, transfer win rate against full-strength Foul&nbsp;Play rose from 2% (untrained control) to 9% (3 GPU-hours) to 17% (4.5 GPU-hours) — approaching the Phase-1 system's career result at 1/12 the decision latency and with no search. <span class="pending">pending: final curves, size ablation, scaled run</span></p>
-<p>A secondary contribution is methodological: the entire system — engine patches, trainers, harnesses, and the experiments themselves — was written by AI coding agents under human direction, with correctness maintained not by human code review but by an adversarial verification protocol described in §7. We report the defects this protocol caught, including three that would have silently invalidated headline results.</p>
+<p>Phase&nbsp;2 rebuilt the system around large-scale self-play reinforcement learning in the style of Jaxcalibur: a vendored Rust simulator verified against the official Pokémon Showdown implementation by differential testing (turn agreement raised 31.1% → <strong>85.7%</strong> across a documented 21-patch ledger), a masked 60-token observation with a machine-checked no-information-leakage property, and PPO self-play training a 2.5–8.1M-parameter transformer at 4,500–5,600 decisions/second on one H100. A transfer harness plays training checkpoints against Foul&nbsp;Play in real Showdown battles through the <em>same</em> encoder code path used in training, with a cross-path golden test (3.37M values, one explained divergence channel) and a public ledger of approximations.</p>
+<p>Two 24-hour runs — 8.1M and 2.49M parameters, identical environment and budget, 12.17M self-play games between them — took net-only transfer win rate against full-strength Foul&nbsp;Play from a pooled untrained floor of 0.1% (1/700) to a <strong>late-run pooled 27.2%</strong> [24.5,&nbsp;30.0] and 27.3% [24.6,&nbsp;30.1] respectively, with best single arms of 34% and 36%. The within-run rise is unambiguous (first third of the treadmill 18.5% → last third 27.8%, +9.3pp, p&nbsp;&lt;&nbsp;0.0001), and it exceeds the Phase-1 search system's career ≈20% at <strong>1/12 the decision latency and with no search</strong>. The size ablation reads null on every comparison we can make — whole-run pooled (p&nbsp;=&nbsp;0.54), late-run pooled (p&nbsp;=&nbsp;0.96), and peaks (p&nbsp;=&nbsp;0.77) — so the quarter-size net, which generates 22% more experience per GPU-hour co-located and ≈1.8× more per dollar in the actor-bound regime, is the configuration we scale. <span class="pending">pending: soak certification, scaled run</span></p>
+<p>A secondary contribution is methodological: the entire system — engine patches, trainers, harnesses, and the experiments themselves — was written by AI coding agents under human direction, with correctness maintained not by human code review but by an adversarial verification protocol described in §7. We report the defects this protocol caught, including three that would have silently invalidated headline results, and a two-probe verification campaign (§8.7) that spent $4.11 on rented hardware to find 27 flaws in a stack whose test suites were entirely green — among them a trainer that never published its weights, which rendered an earlier probe's learning curve uninterpretable.</p>
 </div>
 
 <h2><span class="no">1</span>Introduction</h2>
@@ -118,14 +119,16 @@ a{color:var(--accent);}
 
 <h2><span class="no">5</span>Phase 2: The Self-Play System</h2>
 <h3>5.1 Architecture</h3>
-<p>A 60-token observation per decision: 1 field token, 2 active tokens, 5 candidate-move tokens, 6&nbsp;+&nbsp;6 team tokens, 16 recent-event history tokens, 24 matchup tokens (per-pair damage estimates, injected mid-network). Eleven categorical id slots (species, item, ability, move, types, tera, status) over vocabularies extracted from the engine's own enums with a committed-cache cross-check; 269 float channels. The network is a pre-norm transformer (default 256/1024/8, 8.1M parameters; a 128/512/8, 2.5M variant is under ablation) with four heads: policy (14 actions), value, opponent-next-action (auxiliary), and opponent-set auxiliaries. Training is PPO, reward 1/0 undiscounted, entropy and KL-to-uniform regularisation, following the Jaxcalibur recipe.</p>
+<p>A 60-token observation per decision: 1 field token, 2 active tokens, 5 candidate-move tokens, 6&nbsp;+&nbsp;6 team tokens, 16 recent-event history tokens, 24 matchup tokens (per-pair damage estimates, injected mid-network). Eleven categorical id slots (species, item, ability, move, types, tera, status) over vocabularies extracted from the engine's own enums with a committed-cache cross-check; 269 float channels. The network is a pre-norm transformer (256/1024/8, 8.1M parameters, and a 128/512/8, 2.49M variant — the two arms of §8.2) with four heads: policy (14 actions), value, opponent-next-action (auxiliary), and opponent-set auxiliaries. Training is PPO, reward 1/0 undiscounted, entropy and KL-to-uniform regularisation, following the Jaxcalibur recipe.</p>
 <h3>5.2 The simulator, and how we know it tells the truth</h3>
 <p>The training environment is the vendored Rust engine — the same one Phase&nbsp;1 searched over — which raises the central question of any home-grown simulator: <em>is the physics right?</em> Our answer is continuous differential testing against the official Pokémon Showdown implementation, pinned at a fixed commit as the oracle:</p>
 <ul>
 <li>A Showdown-side dumper emits per-turn state fixtures from real random battles; a comparator drives the Rust engine through the same battles and classifies every divergence by mechanic into a registry of named classes, each carrying a status (OPEN / APPROX / UNSUPPORTED) and a size.</li>
-<li>Engine corrections are made as a numbered, hash-guarded patch ledger over the vendored source (17 patches at time of writing), each patch either unconditional (pure correctness) or gated behind a fidelity option when upstream's own tests pin the old behaviour.</li>
-<li>Headline: turn agreement 31.1% (shipped configuration) → 68.2% → <strong>79.6%</strong> with fidelity options on — stable across three independent battle draws (latest: 980 battles, 65,321 turns; 95% CI 79.25–79.87). Reward-field agreement (win/loss/HP outcomes) is 88.8–89.3%. The residual is dominated by damage-roll residue after outcome-forcing (8.7%), a PP decrement class (3.4%), and two unmodelled volatile classes; the ranked table drives the next patch wave.</li>
+<li>Engine corrections are made as a numbered, hash-guarded patch ledger over the vendored source (21 patches at time of writing), each patch either unconditional (pure correctness) or gated behind a fidelity option when upstream's own tests pin the old behaviour.</li>
+<li>Headline: turn agreement 31.1% (shipped configuration) → 68.2% → 79.6% (17 patches) → <strong>85.73%</strong> [85.46,&nbsp;86.00] with patches 18–21 and fidelity options on (986 battles, 66,034 turns, re-measured 2026-08-30). Reward-field agreement (win/loss/HP outcomes) rose to 92.09%. The PP-decrement class fell 86% (2,187 → 306 divergent turns), the damage class −2.89pp, and the Curse class closed outright.</li>
+<li>The ranked residual now driving the next wave: damage-roll residue after outcome-forcing 5.78% (of which ≈93% is genuine divergence and only ≈7% attainable), an <em>unclassified</em> 4.91% bucket that has become the largest un-mechanised thing left (a recurring faint/protect/stall shape), the <code>lockedmove</code> volatile (339 turns, the top unmodelled mechanic), Taunt/Disable duration counters, boost divergence 0.394%, and Trace.</li>
 <li>Notable finding for practitioners: <strong>two of the five originally-open divergence classes were defects in the measurement harness, not the engine</strong> — a fainted-Pokémon projection and a Tera-typing schema gap. A conformance number is only as good as its comparator, and the comparator needs its own tests.</li>
+<li>A second methodological rule came out of the re-measurement. The Curse class had been sized at 1.29% from a five-sample forensic dump; at deep sampling it had <strong>zero</strong> occurrences — the original figure was an artifact of sizing a class from the same handful of samples used to diagnose its mechanism. The rule we now hold: <em>a small forensic dump may diagnose a mechanism or size a class, never both.</em></li>
 </ul>
 <figure>
 <svg viewBox="0 0 640 240" role="img" aria-label="Turn agreement with the Showdown oracle across configurations and patch waves">
@@ -139,34 +142,39 @@ a{color:var(--accent);}
   <text class="axis" x="40" y="103" text-anchor="end">50</text>
   <text class="axis" x="40" y="60.5" text-anchor="end">75</text>
   <text class="axis" x="40" y="18" text-anchor="end">100%</text>
-  <rect x="68.75" y="131.1" width="100" height="52.9" rx="3" fill="var(--accent)" opacity="0.45"/>
-  <rect x="214.25" y="71.97" width="100" height="112.03" rx="3" fill="var(--accent)" opacity="0.65"/>
-  <rect x="359.75" y="68.06" width="100" height="115.94" rx="3" fill="var(--accent)" opacity="0.82"/>
-  <rect x="505.25" y="48.68" width="100" height="135.32" rx="3" fill="var(--accent)"/>
-  <text class="vlabel" x="118.75" y="125" text-anchor="middle">31.1%</text>
-  <text class="vlabel" x="264.25" y="66" text-anchor="middle">65.9%</text>
-  <text class="vlabel" x="409.75" y="62" text-anchor="middle">68.2%</text>
-  <text class="vlabel" x="555.25" y="43" text-anchor="middle" font-weight="600">79.6%</text>
-  <text class="axis" x="118.75" y="202" text-anchor="middle">options off</text>
-  <text class="axis" x="264.25" y="202" text-anchor="middle">+ two-stage forcing</text>
-  <text class="axis" x="409.75" y="202" text-anchor="middle">+ patch 16 (boosts)</text>
-  <text class="axis" x="555.25" y="202" text-anchor="middle">+ patch 17 (toxic)</text>
+  <rect x="69.7" y="131.13" width="88" height="52.87" rx="3" fill="var(--accent)" opacity="0.4"/>
+  <rect x="181.3" y="71.97" width="88" height="112.03" rx="3" fill="var(--accent)" opacity="0.55"/>
+  <rect x="293.0" y="68.06" width="88" height="115.94" rx="3" fill="var(--accent)" opacity="0.7"/>
+  <rect x="404.7" y="48.68" width="88" height="135.32" rx="3" fill="var(--accent)" opacity="0.85"/>
+  <rect x="516.3" y="38.26" width="88" height="145.74" rx="3" fill="var(--accent)"/>
+  <text class="vlabel" x="113.7" y="125" text-anchor="middle">31.1%</text>
+  <text class="vlabel" x="225.3" y="66" text-anchor="middle">65.9%</text>
+  <text class="vlabel" x="337.0" y="62" text-anchor="middle">68.2%</text>
+  <text class="vlabel" x="448.7" y="43" text-anchor="middle">79.6%</text>
+  <text class="vlabel" x="560.3" y="32" text-anchor="middle" font-weight="600">85.7%</text>
+  <text class="axis" x="113.7" y="202" text-anchor="middle">options off</text>
+  <text class="axis" x="225.3" y="202" text-anchor="middle">+ two-stage forcing</text>
+  <text class="axis" x="337.0" y="202" text-anchor="middle">+ patch 16</text>
+  <text class="axis" x="448.7" y="202" text-anchor="middle">+ patch 17</text>
+  <text class="axis" x="560.3" y="202" text-anchor="middle">+ patches 18–21</text>
   <text class="axis" x="337" y="226" text-anchor="middle">fidelity configuration / patch wave</text>
 </svg>
-<figcaption><strong>Figure 2.</strong> Per-turn agreement between the vendored Rust engine and the Pokémon Showdown oracle, by configuration and patch wave. The final bar is stable across three independent battle draws (latest 980 battles / 65,321 turns, CI 79.25–79.87). Reward-field agreement is 88.8–89.3% throughout the patched configurations.</figcaption>
+<figcaption><strong>Figure 2.</strong> Per-turn agreement between the vendored Rust engine and the Pokémon Showdown oracle, by configuration and patch wave. The 79.6% bar was stable across three independent battle draws (980 battles / 65,321 turns); the final bar is the post-patch-18–21 re-measurement over 986 battles / 66,034 turns, CI 85.46–86.00. Reward-field agreement rose from 88.8–89.3% across the earlier patched configurations to 92.09% at the final bar. Runs 1 and 1b (§8.4) trained against the fourth bar, not the fifth.</figcaption>
 </figure>
 <h3>5.3 Hidden information, machine-checked</h3>
 <p>Pokémon is an imperfect-information game; a self-play agent that trains on information a real opponent would hide posts beautiful curves and cannot transfer. The environment therefore carries a reveal tracker (what each seat has legitimately observed) publishing eleven mask arrays, and the encoder consumes only the masked view. The property is enforced by tests, not convention: two battles differing in exactly one hidden fact must produce byte-identical viewer tokens and differing owner tokens over randomized populations (Python and Rust twins of the same argument), and the leakage suite is a CI gate wired to the exact files a leak would be written in. Three real leaks were found and closed this way during construction (bench-HP, a declared-but-dead move, and a team-HP channel bypassing the mask).</p>
 <h3>5.4 Throughput and cost</h3>
-<p>The full-fidelity environment (masked observation, real random-battle team pool pinned to a set-table commit, sampled damage rolls) runs at ≈327k transitions/second on the sims box — 2.2× cheaper than enumerating all 16 damage rolls per branch would be at equal fidelity (a 586× difference on that axis alone) and 3.3× above the training contract's floor. On one H100 SXM the full loop (1,024 parallel battles, batched inference for both seats, PPO update) sustains ≈4,500–5,500 samples/second — ≈1,000 completed battles per training iteration of 65,536 samples. Day-one cost: ≈$160 for two 24-hour runs.</p>
+<p>The full-fidelity environment (masked observation, real random-battle team pool pinned to a set-table commit, sampled damage rolls) runs at ≈327k transitions/second on the sims box — 2.2× cheaper than enumerating all 16 damage rolls per branch would be at equal fidelity (a 586× difference on that axis alone) and 3.3× above the training contract's floor. On one H100 SXM the full loop (1,024 parallel battles, batched inference for both seats, PPO update) sustained a run-mean of <strong>4,551 samples/second at 8.1M parameters and 5,551 at 2.49M</strong> — about 915 completed battles per training iteration of 65,536 samples, i.e. 238k and 289k games per GPU-hour. Day-one cost: ≈$160 for the two 24-hour runs, or <strong>$13.14 per million self-play games</strong>. §8.3 reports what happens to that figure once the loop is taken off a rented H100 and onto hardware chosen for the resource it is actually bound by.</p>
 
 <h2><span class="no">6</span>Measuring Transfer Honestly</h2>
 <h3>6.1 The adapter</h3>
 <p>Self-play curves cannot certify strength (a net can master its simulator's quirks). The transfer harness plays training checkpoints in <em>real</em> Showdown battles via poke-env, against Foul&nbsp;Play at full strength, with the network thinking for ≈8&nbsp;ms on CPU and no search. The design rule: the adapter builds the environment-contract buffers and then calls <strong>the same code objects</strong> the trainer uses (encoder, matchup, event derivation) — the only place the training and serving paths can diverge is one translation file, which is exactly where the testing effort concentrates.</p>
 <h3>6.2 The golden, and the approximations ledger</h3>
-<p>A cross-path golden encodes 200 generated positions through both paths and compares 3,372,600 values; at time of writing the tolerated divergence is 70 values (0.0021%), all on one explained matchup channel, pinned by an assertion that fails if the count drifts or a new divergence class appears (mutation-tested). Everything the adapter cannot know or chooses to mirror from training is a numbered approximation (A1–A13) in a public ledger, each with its expected cost and a measurement plan; the two capable of moving results (opponent slot compaction; inferred opponent actions, unobserved on ≈55% of decisions) are counted in every series report.</p>
+<p>A cross-path golden encodes 200 generated positions through both paths and compares 3,372,600 values; at time of writing the tolerated divergence is 70 values (0.0021%), all on one explained matchup channel, pinned by an assertion that fails if the count drifts or a new divergence class appears (mutation-tested). Everything the adapter cannot know or chooses to mirror from training is a numbered approximation (A1–A13) in a public ledger, each with its expected cost and a measurement plan; the two capable of moving results (opponent slot compaction; inferred opponent actions) are counted in every series report.</p>
+<p><strong>A9 is now closed.</strong> The largest of these — inferred opponent actions, unobserved on ≈55% of decisions — was resolved by reading Showdown's <code>|move|</code> protocol line directly instead of inferring from a PP rule the measurement fork never exercised. Measured after the fix: the unknown-action rate fell <strong>56.4% → 19.8%</strong> (2.8×), the old heuristics fired zero times, and there were zero fallbacks. The residual was then decomposed and found benign: 469 of the 539 remaining windows are decisions on which the opponent genuinely took no action (switch-ins after a faint, forced turns), and the other 70 are the "can't act" floor; a line-level reconstruction put the real-gap component at zero, both by measurement and by construction.</p>
 <h3>6.3 The treadmill</h3>
-<p>During training, a loop picks up each mirrored checkpoint (≈30-minute cadence) and plays a 100-game series against full-strength Foul&nbsp;Play, plus a 50-game untrained-control series as the floor, writing to the same dashboard as every other experiment. The protocol is two-tier by design: hourly 100-game series read the <em>slope</em> (±≈7pp), and a 300–500-game soak on a rented CPU pod certifies any number that must <em>count</em>. Measurement lags the live network by ≈100 iterations (≈45 minutes), so the plotted curve systematically understates the current net.</p>
+<p>During training, a loop picks up each mirrored checkpoint (≈30-minute cadence) and plays a 100-game series against full-strength Foul&nbsp;Play, plus a 50-game untrained-control series as the floor, writing to the same dashboard as every other experiment. The protocol is two-tier by design: hourly 100-game series read the <em>slope</em> (±≈8–9pp at n&nbsp;=&nbsp;100), and a 300–500-game soak on a rented CPU pod certifies any number that must <em>count</em>. Measurement lags the live network by ≈100 iterations (≈45 minutes), so the plotted curve systematically understates the current net.</p>
+<p>A 100-game arm is too noisy to carry a claim on its own, and we do not let one. Where §8 reports a <em>level</em> rather than a slope, it pools consecutive arms into a band and quotes the Wilson interval on the pooled denominator — eleven arms is 1,100 games, which is soak-grade. Pooling consecutive checkpoints of a still-improving policy trades a small downward bias (the band averages over the improvement inside it) for a large variance reduction; we accept that trade and state the bias rather than quoting a peak arm. <strong>Peak arms are reported as peaks, never as the run's level</strong> — an obvious rule that is easy to break once a 36% appears on a dashboard.</p>
 <h3>6.4 Withdrawn numbers</h3>
 <p>Two early results were withdrawn by our own verification before anyone believed them, and we report them as method: (i)&nbsp;the first series (5%) was measured through an adapter that dropped ≈110 "special" moves (Protect, Knock Off, Recover, hazards, most status) from the agent's own moveset — poke-env's <code>Pokemon.moves</code> never stores them; only 183 of 871 move requests reached the net with all four slots, and all-special movesets produced illegal-mask fallbacks. (ii)&nbsp;a conformance report's headline was measured with a driver built before one of the five fixes it reported. Both defects were caught by adversarial re-derivation (§7), both fixes carry regression tests, and the corrected numbers replaced the originals within hours.</p>
 
@@ -177,72 +185,287 @@ a{color:var(--accent);}
 <li><strong>One adversarial verifier per deliverable.</strong> Before any pull request is armed to merge, an independent agent is instructed to <em>break</em> its claims — re-deriving arithmetic from committed artifacts, mutation-testing new tests for vacuity, byte-comparing vendored code against upstream, probing for information leaks and encoding drifts — and to return CONFIRMED/REFUTED verdicts with file-line evidence. A green build is treated as necessary, never sufficient.</li>
 <li><strong>Preregistration and kill clauses.</strong> Experiments state their endpoints and abort criteria before running; two lanes this campaign were killed by their own preregistered clauses, and one abort criterion was itself corrected when measurement showed its threshold sat inside the untrained noise band.</li>
 <li><strong>Committed evidence.</strong> Any number quoted in a report must re-derive from artifacts in the repository; forensic samples too large to regenerate are committed and covered by tests that fail if their arithmetic drifts.</li>
+<li><strong>Paid rehearsal on real hardware.</strong> Steps 1–4 are all readings of code and artifacts, and §8.7 is the record of what they miss. Before any expensive run, the exact merged stack is deployed to a real rented box by the real launcher and observed working. Two probes and a smoke launch cost $4.11 and found 27 flaws in a stack whose four test suites were green.</li>
 </ol>
-<p>Defects caught by this protocol in the reporting period include: the two withdrawn numbers of §6.4; a CI job left bodiless by a merge (which would have disabled the whole pipeline repo-wide); a trainer abort criterion that detected NaN but not infinity; an approximations-ledger identifier collision; six stale numbers in a conformance report contradicted by the JSONs beside them; and an unverified assumption about poke-env's own-side reveal semantics whose failure mode was silently corrupted history channels in every real game.</p>
+<p>Defects caught by this protocol in the reporting period include: the two withdrawn numbers of §6.4; a CI job left bodiless by a merge (which would have disabled the whole pipeline repo-wide); a trainer abort criterion that detected NaN but not infinity; an approximations-ledger identifier collision; six stale numbers in a conformance report contradicted by the JSONs beside them; an unverified assumption about poke-env's own-side reveal semantics whose failure mode was silently corrupted history channels in every real game; and — from the rehearsals of §8.7 — a trainer that never published its weights while reporting a healthy on-policy accept rate, a deploy gate that verified a file list rather than a working import, and a train/serve channel skew that would have benchmarked the week run against a blinded adapter.</p>
 
 <h2><span class="no">8</span>Results</h2>
-<h3>8.1 Day one <span class="pending">preliminary</span></h3>
-<p>Training run 1 (8.1M parameters, one H100 SXM, gen9 random battles, masked observations, real set-table teams, sampled damage): league win rate vs a frozen self-snapshot holds 57–65% against an ever-advancing snapshot (compounding improvement); entropy stable ≈0.85–0.90. Transfer vs full-strength Foul&nbsp;Play, net-only at ≈8&nbsp;ms/decision:</p>
+<h3>8.1 Day one</h3>
+<p>Run&nbsp;1 and Run&nbsp;1b launched simultaneously on sibling H100 SXMs at 2026-08-30 13:47 PT (gen9 random battles, masked observations, real set-table teams, sampled damage), each budgeted ≈24 GPU-hours; both were stopped by the budget watchdog at 2026-08-31 13:49 PT. The first day-one signals, kept here because they are what the pivot was judged on in real time:</p>
 <div class="tablewrap">
 <table>
 <tr><th>checkpoint</th><th>GPU-hours</th><th>vs Foul Play (100 games)</th><th>95% CI</th></tr>
-<tr><td>untrained control</td><td>0</td><td>2.0%</td><td>[0.4, 10.5]</td></tr>
-<tr><td>iteration 300</td><td>≈3</td><td>9.0%</td><td>[4.8, 16.2]</td></tr>
-<tr><td>iteration 500</td><td>≈4.5</td><td><strong>17.0%</strong></td><td>[10.9, 25.5]</td></tr>
-<tr><td>…</td><td></td><td><span class="pending">pending: overnight curve</span></td><td></td></tr>
+<tr><td>untrained control (Run 1)</td><td>0</td><td>2.0% (1/50)</td><td>[0.4, 10.5]</td></tr>
+<tr><td>Run 1, iteration 300</td><td>1.2</td><td>9.0%</td><td>[4.8, 16.2]</td></tr>
+<tr><td>Run 1, iteration 500</td><td>2.0</td><td>17.0%</td><td>[10.9, 25.5]</td></tr>
+<tr><td>untrained control (Run 1b)</td><td>0</td><td>0.0% (0/50)</td><td>[0.0, 7.1]</td></tr>
+<tr><td>Run 1b, iteration 200</td><td>0.7</td><td><strong>12.0%</strong></td><td>[7.0, 19.8]</td></tr>
 </table>
 </div>
+<p>Run&nbsp;1b's iteration 200 was the first checkpoint in the campaign whose interval separated from its own untrained floor — the first statistically clean evidence that self-play strength transfers to real Showdown play at all — and the quarter-size net reached it in 40 minutes of wall clock. The full 24-hour curves are §8.4; the size comparison they settle is §8.2.</p>
 <figure>
-<svg viewBox="0 0 640 300" role="img" aria-label="Day-one transfer win rate vs Foul Play over GPU-hours">
-  <line x1="46" y1="260" x2="530" y2="260" stroke="var(--rule)"/>
-  <line x1="46" y1="178" x2="530" y2="178" stroke="var(--rule)"/>
-  <line x1="46" y1="96" x2="530" y2="96" stroke="var(--rule)"/>
-  <line x1="46" y1="14" x2="530" y2="14" stroke="var(--rule)"/>
+<svg viewBox="0 0 640 300" role="img" aria-label="Transfer win rate versus full-strength Foul Play over 24 GPU-hours of self-play: 35 individual 100-game arms per run as faint dots, and six pooled four-hour bands per run as lines with Wilson confidence intervals">
+  <line x1="46" y1="260" x2="610" y2="260" stroke="var(--rule)"/>
+  <line x1="46" y1="198.5" x2="610" y2="198.5" stroke="var(--rule)"/>
+  <line x1="46" y1="137" x2="610" y2="137" stroke="var(--rule)"/>
+  <line x1="46" y1="75.5" x2="610" y2="75.5" stroke="var(--rule)"/>
+  <line x1="46" y1="14" x2="610" y2="14" stroke="var(--rule)"/>
   <text class="axis" x="40" y="264" text-anchor="end">0%</text>
-  <text class="axis" x="40" y="182" text-anchor="end">10%</text>
-  <text class="axis" x="40" y="100" text-anchor="end">20%</text>
-  <text class="axis" x="40" y="18" text-anchor="end">30%</text>
-  <text class="axis" x="46" y="282">0</text>
-  <text class="axis" x="239" y="282" text-anchor="middle">2</text>
-  <text class="axis" x="336" y="282" text-anchor="middle">3</text>
-  <text class="axis" x="482" y="282" text-anchor="middle">4.5</text>
-  <text class="axis" x="288" y="298" text-anchor="middle">GPU-hours of self-play</text>
-  <line x1="46" y1="96" x2="530" y2="96" stroke="var(--ink2)" stroke-dasharray="5 4" stroke-width="1.5"/>
-  <text class="axis" x="530" y="90" text-anchor="end">Phase-1 search system, career ≈20%</text>
-  <line x1="46" y1="256.7" x2="46" y2="173.9" stroke="var(--s1)" stroke-width="1.5" opacity="0.55"/>
-  <line x1="336" y1="220.6" x2="336" y2="127.2" stroke="var(--s1)" stroke-width="1.5" opacity="0.55"/>
-  <line x1="482" y1="170.6" x2="482" y2="50.9" stroke="var(--s1)" stroke-width="1.5" opacity="0.55"/>
-  <polyline points="46,243.6 336,186.2 482,120.6" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
-  <circle cx="46" cy="243.6" r="4.5" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
-  <circle cx="336" cy="186.2" r="4.5" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
-  <circle cx="482" cy="120.6" r="4.5" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
-  <text class="dlabel" x="492" y="118" fill="var(--s1)">Run 1 (8.1M) — 17.0%</text>
-  <line x1="54" y1="260" x2="54" y2="201.8" stroke="var(--s2)" stroke-width="1.5" opacity="0.55"/>
-  <line x1="240" y1="202.6" x2="240" y2="97.6" stroke="var(--s2)" stroke-width="1.5" opacity="0.55"/>
-  <polyline points="54,260 240,161.6" fill="none" stroke="var(--s2)" stroke-width="2"/>
-  <circle cx="54" cy="260" r="4.5" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
-  <circle cx="240" cy="161.6" r="4.5" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
-  <text class="dlabel" x="250" y="158" fill="var(--s2)">Run 1b (2.5M) — 12.0%</text>
+  <text class="axis" x="40" y="202.5" text-anchor="end">10%</text>
+  <text class="axis" x="40" y="141" text-anchor="end">20%</text>
+  <text class="axis" x="40" y="79.5" text-anchor="end">30%</text>
+  <text class="axis" x="40" y="18" text-anchor="end">40%</text>
+  <text class="axis" x="46" y="282" text-anchor="middle">0</text>
+  <text class="axis" x="140" y="282" text-anchor="middle">4</text>
+  <text class="axis" x="234" y="282" text-anchor="middle">8</text>
+  <text class="axis" x="328" y="282" text-anchor="middle">12</text>
+  <text class="axis" x="422" y="282" text-anchor="middle">16</text>
+  <text class="axis" x="516" y="282" text-anchor="middle">20</text>
+  <text class="axis" x="610" y="282" text-anchor="middle">24</text>
+  <text class="axis" x="328" y="298" text-anchor="middle">GPU-hours of self-play (logged, not estimated)</text>
+  <line x1="46" y1="137" x2="610" y2="137" stroke="var(--ink2)" stroke-dasharray="5 4" stroke-width="1.5"/>
+  <text class="axis" x="610" y="131" text-anchor="end">Phase-1 search system, career ≈20% at 100 ms/decision</text>
+  <line x1="46" y1="75.5" x2="610" y2="75.5" stroke="var(--ink2)" stroke-dasharray="2 5" stroke-width="1" opacity="0.65"/>
+  <text class="axis" x="52" y="71" text-anchor="start">≈30% ≈ strong ladder play (§1.2)</text>
+  <circle cx="66" cy="26" r="4.2" fill="var(--s1)"/>
+  <text class="dlabel" x="76" y="30" fill="var(--s1)">Run 1 — 8.1M</text>
+  <circle cx="66" cy="46" r="4.2" fill="var(--s2)"/>
+  <text class="dlabel" x="76" y="50" fill="var(--s2)">Run 1b — 2.49M</text>
+  <circle cx="74.2" cy="204.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="93.0" cy="155.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="102.3" cy="149.3" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="121.1" cy="112.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="130.4" cy="173.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="149.1" cy="180.1" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="158.4" cy="118.6" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="186.9" cy="124.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="205.7" cy="155.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="215.1" cy="124.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="234.0" cy="106.2" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="243.4" cy="112.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="252.9" cy="93.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="271.9" cy="93.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="281.3" cy="112.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="300.2" cy="106.2" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="309.6" cy="130.8" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="328.4" cy="106.2" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="337.8" cy="130.8" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="356.6" cy="112.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="366.0" cy="81.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="384.7" cy="93.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="403.5" cy="87.8" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="412.9" cy="124.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="431.8" cy="50.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="441.1" cy="75.5" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="460.0" cy="93.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="469.4" cy="112.4" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="488.1" cy="87.8" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="497.5" cy="93.9" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="525.7" cy="118.6" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="544.4" cy="81.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="553.8" cy="63.2" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="572.6" cy="81.7" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <circle cx="582.0" cy="118.6" r="2.2" fill="var(--s1)" opacity="0.32"/>
+  <line x1="90.0" y1="177.5" x2="90.0" y2="137.6" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="184.0" y1="153.6" x2="184.0" y2="114.0" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="278.0" y1="128.5" x2="278.0" y2="86.1" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="372.0" y1="124.3" x2="372.0" y2="84.8" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="466.0" y1="107.0" x2="466.0" y2="62.8" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="560.0" y1="115.6" x2="560.0" y2="67.7" stroke="var(--s1)" stroke-width="1.5" opacity="0.6"/>
+  <polyline points="90.0,159.1 184.0,134.9 278.0,108.3 372.0,105.4 466.0,85.8 560.0,92.7" fill="none" stroke="var(--s1)" stroke-width="2.2" stroke-linejoin="round"/>
+  <circle cx="90.0" cy="159.1" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="184.0" cy="134.9" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="278.0" cy="108.3" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="372.0" cy="105.4" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="466.0" cy="85.8" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="560.0" cy="92.7" r="4.2" fill="var(--s1)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="61.6" cy="186.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="77.0" cy="180.1" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="84.7" cy="149.3" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="100.1" cy="100.1" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="115.5" cy="149.3" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="130.8" cy="149.3" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="146.2" cy="143.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="169.6" cy="112.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="185.4" cy="155.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="200.9" cy="112.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="216.3" cy="124.7" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="224.0" cy="57.1" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="239.4" cy="112.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="254.8" cy="87.8" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="270.2" cy="130.8" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="285.5" cy="100.1" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="293.2" cy="112.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="308.6" cy="143.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="323.9" cy="143.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="339.2" cy="81.7" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="354.6" cy="173.9" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="369.9" cy="75.5" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="377.6" cy="106.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="393.1" cy="155.4" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="408.6" cy="143.2" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="424.0" cy="124.7" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="439.7" cy="100.1" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="455.1" cy="93.9" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="462.8" cy="124.7" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="478.3" cy="38.6" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="509.1" cy="75.5" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="524.4" cy="118.6" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="532.1" cy="75.5" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="547.4" cy="81.7" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <circle cx="562.8" cy="87.8" r="2.2" fill="var(--s2)" opacity="0.32"/>
+  <line x1="96.0" y1="169.8" x2="96.0" y2="132.4" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="190.0" y1="137.2" x2="190.0" y2="95.8" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="284.0" y1="136.8" x2="284.0" y2="98.5" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="378.0" y1="142.0" x2="378.0" y2="101.1" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="472.0" y1="113.9" x2="472.0" y2="70.2" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <line x1="566.0" y1="116.4" x2="566.0" y2="62.7" stroke="var(--s2)" stroke-width="1.5" opacity="0.6"/>
+  <polyline points="96.0,152.4 190.0,117.5 284.0,118.6 378.0,122.7 472.0,92.9 566.0,90.9" fill="none" stroke="var(--s2)" stroke-width="2.2" stroke-linejoin="round"/>
+  <circle cx="96.0" cy="152.4" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="190.0" cy="117.5" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="284.0" cy="118.6" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="378.0" cy="122.7" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="472.0" cy="92.9" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
+  <circle cx="566.0" cy="90.9" r="4.2" fill="var(--s2)" stroke="var(--ground)" stroke-width="2"/>
 </svg>
-<figcaption><strong>Figure 1.</strong> Day-one transfer: win rate vs full-strength Foul Play (100-game series, net-only, ≈8 ms/decision) as a function of self-play training time. Whiskers are 95% binomial CIs; the points at 0 GPU-hours are each run's untrained control. The dashed reference is the Phase-1 search system's career result at 100 ms/decision. Blue: Run 1 (8.1M parameters); orange: Run 1b (2.5M).</figcaption>
+<figcaption><strong>Figure 1.</strong> Transfer win rate vs full-strength Foul Play (net-only, ≈8 ms/decision, no search) across both complete 24-hour runs. Faint dots are the 35 individual 100-game treadmill arms per run, plotted at their logged cumulative GPU-hour — they are the ±≈8–9pp slope read of §6.3 and no single one of them is a result. Bold lines are the same arms pooled into four-hour bands (n&nbsp;=&nbsp;400–700 games each) with 95% Wilson intervals on the pooled denominator; these are the levels quoted in §8.4. The two runs' bands overlap throughout, which is the size ablation of §8.2. The dashed reference is the Phase-1 search system's career result at 12× the decision latency; the dotted reference is the ≈30% band we read as strong ladder play. Untrained controls (350 games per run, not plotted) sit at 0.29% and 0.0%. Both runs trained against the 17-patch, 79.6%-conformance engine with six event-outcome channels dead (§8.6).</figcaption>
 </figure>
-<p>Run 1b (2.5M parameters), same protocol: untrained floor 0.0% [0.0,&nbsp;7.1]; iteration 200 (≈2 GPU-hours) <strong>12.0%</strong> [7.0,&nbsp;19.8] — the first checkpoint whose interval separates from its floor, i.e. the first statistically clean evidence that self-play strength transfers to real Showdown play at all. Notably the quarter-size net reached it earlier in wall-clock terms.</p>
-<p>For reference, the Phase-1 search system's career result is ≈20% at 100&nbsp;ms/decision; iteration 500's interval already overlaps it.</p>
-<h3>8.2 Size ablation <span class="pending">pending</span></h3>
-<p>Run 1b trains a 2.5M-parameter variant (¼ trunk) on an identical environment and deadline; it sustains ≈20% higher sample throughput. Curves and transfer lines to be compared at the shared cutoff.</p>
-<h3>8.3 Scaled run <span class="pending">pending</span></h3>
+<h3>8.2 Size ablation: the verdict is parity</h3>
+<p>Run 1b is a 2.49M-parameter variant (128/512/8 trunk against Run 1's 256/1024/8, ¼ the parameters) trained on an identical environment, identical hyperparameters and an identical 24-hour deadline. It is the campaign's one controlled capacity experiment, and it is the direct descendant of Phase 1's finding that <em>capacity</em> was the binding constraint (§4.3) — the obvious worry being that we had merely moved the ceiling rather than removed it.</p>
+<p>We can make three comparisons, and all three read null:</p>
+<div class="tablewrap">
+<table>
+<tr><th>comparison</th><th>Run 1 (8.1M)</th><th>Run 1b (2.49M)</th><th>difference</th><th>p</th></tr>
+<tr><td>whole run, all 35 arms pooled (n&nbsp;=&nbsp;3,500 each)</td><td>23.8% [22.4, 25.3]</td><td>23.2% [21.8, 24.6]</td><td>−0.6pp</td><td>0.54</td></tr>
+<tr><td>last 10 arms pooled (n&nbsp;=&nbsp;1,000 each)</td><td>27.2% [24.5, 30.0]</td><td>27.3% [24.6, 30.1]</td><td>+0.1pp</td><td>0.96</td></tr>
+<tr><td>best single arm (n&nbsp;=&nbsp;100 each)</td><td>34.0% [25.5, 43.7]</td><td>36.0% [27.3, 45.8]</td><td>+2.0pp</td><td>0.77</td></tr>
+</table>
+</div>
+<p>At 3,500 games per arm the whole-run comparison would resolve a 3pp difference; it sees 0.6pp in the direction <em>against</em> the larger model. We therefore conclude that <strong>2.49M parameters already captures essentially all of the reachable policy at this experience volume</strong>, for this observation and action space, and that Phase 1's capacity ceiling was a property of a 41-column linear prior rather than of small networks generally.</p>
+<p>The corollary is the one that matters commercially: the small net is not merely as good, it is strictly cheaper on three axes. Co-located on one H100 it generated 22% more experience per GPU-hour (289k vs 238k games/hour, §5.4). In the actor-bound regime the week run will use (§8.3), where a CPU forward pass dominates the cost of a decision rather than being amortised into a GPU batch, the gap widens to ≈1.8× — the d128 forward pass is 3.5&nbsp;ms at the median against d256's 7.2&nbsp;ms. And at serving time, which is the entire point of the project (§1.1), it is ≈2× cheaper per decision on the shared game-server threads. Jaxcalibur's own result points the same way: an 8.5M net trained on ≈100M games/week beat every larger, shorter-trained alternative. Given a fixed budget, buy games, not parameters.</p>
+<p><strong>Caveat.</strong> This is a null at <em>one</em> experience volume (≈6M games). It does not establish that 2.49M suffices at 30M or 100M games; capacity ceilings are volume-dependent by construction, and the week run is designed to re-test exactly this at ≈5× the volume. <span class="pending">pending</span> 300-game soaks of each run's best checkpoints, in flight, will confirm or refute the last-10-arms row.</p>
+
+<h3>8.3 The week run: configuration and economics</h3>
+<p>The scaled run's design follows from a single measurement that reversed our intuition about what to buy. Across both verification probes (§8.7), on real rented hardware running the real training loop, <strong>the GPU was idle 0–9% of the time</strong>: 0 of 20 one-second samples non-zero on the second probe, ≈9% on the first. Generation, not learning, is the whole cost. The anchors:</p>
+<div class="tablewrap">
+<table>
+<tr><th>quantity</th><th>measured</th></tr>
+<tr><td>actor generation, sustained</td><td><strong>36.3 rows/s per CPU core</strong>, 2,025 games/hour/core</td></tr>
+<tr><td>GPU duty cycle during training</td><td>0.0% (probe 2, 32.5 min window), ≈9% (probe 1)</td></tr>
+<tr><td>GPU learner throughput (L40S class, d128)</td><td>6,870 samples/s on <strong>1</strong> CPU core — feeds ≈190 actor cores</td></tr>
+<tr><td>CPU-only learner</td><td>22 rows/s/core; would consume 62% of any box, and 29% even with 4× faster cores — <strong>not viable</strong></td></tr>
+<tr><td>actor→learner traffic</td><td>≈70 KB/sample ⇒ ≈51 MB/s at full rate</td></tr>
+</table>
+</div>
+<p>Two conclusions. First, a CPU-only learner is dead: the arithmetic never closes, and a $0.20/h GPU that sits 95% idle is still the cheapest way to run the update. Second, the topology conclusion of §8.6 sharpens: one modest GPU serves roughly 190 actor cores, so until a run exceeds that width the correct shape is <strong>one big box</strong> — actors and learner co-located, no network hop at all — rather than the distributed fleet the actor/learner layer was built to support. The layer is not wasted; it is what makes the box's actors and learner separable processes, and it is what a &gt;190-core run will need.</p>
+<p>A third measurement changed where we rent. Advertised vCPU counts on GPU clouds are close to fiction under a cgroup: on the probe box <code>nproc</code> reported 96 against a real quota of 10.2. We measured the ratio of real to advertised CPU across rental shapes and found <strong>≈85% on 1–2 GPU rentals collapsing to ≈14% on 8× bulk rentals</strong> — that is, buying eight GPUs' worth of listed cores delivers about one and a half. Sizing a fleet off <code>nproc</code> would have over-provisioned the week run by 6×.</p>
+<p>Pricing the week run against those anchors:</p>
+<div class="tablewrap">
+<table>
+<tr><th>configuration</th><th>$/hour</th><th>games per $</th><th>$ per million games</th></tr>
+<tr><td>day-one H100 SXM (measured, §5.4)</td><td>≈$3.3</td><td>76k</td><td><strong>$13.14</strong></td></tr>
+<tr><td>standard GPU cloud, actor-optimised</td><td>—</td><td>—</td><td>$9–18</td></tr>
+<tr><td>marketplace (verified listings)</td><td>—</td><td>—</td><td>≈$2.2</td></tr>
+</table>
+</div>
+<p><strong>Planned configuration.</strong> The 2.49M model (§8.2), warm-started rather than from scratch, on a verified marketplace listing: RTX 3090 + EPYC 7B13, 64 cores / 128 threads, whole machine, at $0.39/hour ≈ $65/week. Target ≈<strong>29M self-play games in one week</strong> — roughly 2.4× the two day-one runs' combined 12.17M, at 40% of their dollar cost, or ≈5.9× the games per dollar.</p>
+<p><span class="pending">pending</span> The box verification rental (real cgroup cores, sustained actor rows/s against the 36.3/core anchor, learner burst) was in flight at time of writing; the week run is not committed until it passes. Results, curves, and the re-test of §8.2's null at ≈5× experience volume follow the run.</p>
+<p><strong>Warm start.</strong> Training does not restart from noise. The starting checkpoint is chosen by 300-game soak, not by recency — Run 1's checkpoint 1200 threw games at three times its neighbours' rate, and a latest-is-best rule would have picked exactly that kind of point. The candidates are Run 1b's checkpoints 2300, 5600 and final. <span class="pending">pending</span> soak results, tonight.</p>
+
+<h3>8.4 The 24-hour readout</h3>
+<p><strong>Run summary.</strong> Both runs ran to the budget watchdog's deadline kill; neither crashed, diverged, or hit an abort criterion.</p>
+<div class="tablewrap">
+<table>
+<tr><th>run</th><th>parameters</th><th>iterations</th><th>self-play games</th><th>env. steps</th><th>in-loop wall</th><th>mean samples/s</th><th>$ cost</th></tr>
+<tr><td>Run 1</td><td>8.1M</td><td>5,875</td><td>5,597,249</td><td>385.0M</td><td>23.5 h (≈24 h pod)</td><td>4,551</td><td>≈$80</td></tr>
+<tr><td>Run 1b</td><td>2.49M</td><td>6,925</td><td>6,575,793</td><td>453.8M</td><td>22.7 h (≈24 h pod)</td><td>5,551</td><td>≈$80</td></tr>
+</table>
+</div>
+<p><em>In-loop wall</em> is the summed per-iteration training time; the ≈0.5–1.3 h difference from pod wall-clock is evaluation, league play and checkpointing. Cost is the rented H100 rate against the 24-hour budget, not a ledgered invoice — the runs predate the spend-ledger instrumentation of §8.7. Policy entropy fell 2.05 → 0.76 (Run 1) and 2.05 → 0.72 (Run 1b) with no collapse; the opponent-action auxiliary head finished at 52.5% accuracy on both runs.</p>
+<p><strong>Transfer level, pooled by GPU-hour band.</strong> Each band pools the 100-game arms inside it, per §6.3; the Wilson interval is on the pooled denominator. This is the table to read for <em>level</em>.</p>
+<div class="tablewrap">
+<table>
+<tr><th>GPU-hours</th><th>Run 1 (8.1M)</th><th>95% CI</th><th>Run 1b (2.49M)</th><th>95% CI</th></tr>
+<tr><td>0–4</td><td>16.4% (n=500)</td><td>[13.4, 19.9]</td><td>17.5% (n=600)</td><td>[14.7, 20.7]</td></tr>
+<tr><td>4–8</td><td>20.3% (n=600)</td><td>[17.3, 23.7]</td><td>23.2% (n=600)</td><td>[20.0, 26.7]</td></tr>
+<tr><td>8–12</td><td>24.7% (n=600)</td><td>[21.4, 28.3]</td><td>23.0% (n=700)</td><td>[20.0, 26.3]</td></tr>
+<tr><td>12–16</td><td>25.1% (n=700)</td><td>[22.1, 28.5]</td><td>22.3% (n=600)</td><td>[19.2, 25.8]</td></tr>
+<tr><td>16–20</td><td>28.3% (n=600)</td><td>[24.9, 32.1]</td><td>27.2% (n=600)</td><td>[23.8, 30.9]</td></tr>
+<tr><td>20–24</td><td>27.2% (n=500)</td><td>[23.5, 31.3]</td><td>27.5% (n=400)</td><td>[23.4, 32.1]</td></tr>
+<tr><td>untrained control</td><td>0.29% (1/350)</td><td>[0.05, 1.60]</td><td>0.0% (0/350)</td><td>[0.00, 1.09]</td></tr>
+</table>
+</div>
+<p><strong>The rise is real.</strong> Comparing the first third of each treadmill against the last third, pooled (n&nbsp;=&nbsp;1,100 per side): Run 1 goes 18.5% [16.4,&nbsp;21.0] → <strong>27.8%</strong> [25.3,&nbsp;30.5], +9.3pp, z&nbsp;=&nbsp;5.15, p&nbsp;&lt;&nbsp;0.0001; Run 1b goes 19.2% [17.0,&nbsp;21.6] → <strong>26.5%</strong> [24.0,&nbsp;29.2], +7.4pp, z&nbsp;=&nbsp;4.11, p&nbsp;&lt;&nbsp;0.0001. Both runs end above the Phase-1 search system's career ≈20% — at ≈8&nbsp;ms/decision against its 100&nbsp;ms, and with no search at all. Both end just below the ≈30% band we treat as strong ladder play (§1.2), which the best individual arms cross.</p>
+<p><strong>Notable arms.</strong> Reported as peaks, not as levels (§6.3):</p>
+<div class="tablewrap">
+<table>
+<tr><th>run</th><th>checkpoint</th><th>GPU-hours</th><th>games trained on</th><th>vs Foul Play (n=100)</th><th>95% CI</th></tr>
+<tr><td>Run 1</td><td>4100</td><td>16.4</td><td>3.96M</td><td><strong>34.0%</strong></td><td>[25.5, 43.7]</td></tr>
+<tr><td>Run 1</td><td>5400</td><td>21.6</td><td>5.16M</td><td>32.0%</td><td>[23.7, 41.7]</td></tr>
+<tr><td>Run 1</td><td>5700 (last arm)</td><td>22.8</td><td>5.44M</td><td>23.0%</td><td>[15.8, 32.2]</td></tr>
+<tr><td>Run 1b</td><td>5600</td><td>18.4</td><td>5.36M</td><td><strong>36.0%</strong> <em>(campaign best)</em></td><td>[27.3, 45.8]</td></tr>
+<tr><td>Run 1b</td><td>6300</td><td>20.7</td><td>6.00M</td><td>30.0%</td><td>[21.9, 39.6]</td></tr>
+<tr><td>Run 1b</td><td>6700 (last arm)</td><td>22.0</td><td>6.37M</td><td>28.0%</td><td>[20.1, 37.5]</td></tr>
+</table>
+</div>
+<p>The volatility is the story of these rows as much as the peaks are. Individual arms span 9–34% (Run 1) and 12–36% (Run 1b), and adjacent arms 200 iterations apart swing as much as 16pp (Run 1b: 14% at ckpt 4000, 30% at ckpt 4200). At n&nbsp;=&nbsp;100 the Wilson half-width is ±8–9pp, which accounts for most of it; the rest is genuine checkpoint-to-checkpoint variation in a policy still moving. <strong>No single arm in this campaign should be quoted as a result</strong>, the 36% included. The full 35-arm series per run is committed alongside this draft.</p>
+<p><strong>The internal league saturated while external transfer kept rising.</strong> The self-play league arm (512 games per evaluation, against a frozen snapshot ≈250 iterations back) fell from 60.5% over the first 500 iterations to 52.8% (500–1,500), 51.2% (1,500–3,000), 50.1% (3,000–4,500) and <strong>49.5%</strong> over the last 2,500 iterations of Run 1 — statistical parity with itself a quarter million games earlier. Run 1b's league arm is indistinguishable: 60.5% → 49.3%. Both runs beat a random-action opponent 99.5–99.6% throughout, so the network had not stopped functioning.</p>
+<p>Read carefully, this is not evidence that learning stopped, and the external curve above proves it did not. The frozen reference <em>slides</em>: the league retains a rolling window of snapshots and evaluates against the oldest one held, so the arm measures "improvement over the last ≈250 iterations" — a rate — rather than improvement over a fixed opponent. A flat 50% therefore says the per-250-iteration gain fell below the 512-game arm's resolution (±≈4.3pp), while the treadmill, which has a genuinely fixed reference in Foul Play, still resolved +9.3pp across the run. The practical lesson is that <strong>a self-play league with a sliding reference cannot detect a plateau</strong>, and cannot be used as the abort criterion for a long run; only a fixed external opponent can. This directly informs the week run's instrumentation.</p>
+<p><strong>500-game soak</strong> <span class="pending">pending — in flight at time of writing</span></p>
+<div class="tablewrap">
+<table>
+<tr><th>run</th><th>checkpoint</th><th>games</th><th>vs Foul Play</th><th>95% CI</th></tr>
+<tr><td>Run 1</td><td>4100 / 4200 / 5400 / 5800</td><td><span class="pending">pending, 300</span></td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td></tr>
+<tr><td>Run 1b</td><td>2300 / 5600 / 6700 / 6900</td><td><span class="pending">pending, 300</span></td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td></tr>
+<tr><td>untrained control</td><td>—</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td></tr>
+</table>
+</div>
+<p>The soaks serve two purposes: certifying the §8.2 size verdict at a sample size no single arm can reach, and picking the week run's warm-start checkpoint (§8.3). Note that the pooled last-10-arms comparison in §8.2 already has 1,000 games per side — more than the soak will — so the soak is confirmation of a specific <em>checkpoint</em>, not the deciding evidence on <em>size</em>.</p>
+<p><strong>Decision output — week-run configuration.</strong> Model: 2.49M parameters (§8.2). Topology: one big box, actors and learner co-located, per §8.3's idle-GPU measurement — not the distributed fleet. Engine: the 21-patch, 85.73%-conformance build (§5.2), the first run to train against patches 18–21 and against the six event-outcome channels that were dead in Runs 1/1b (§8.5). Warm start: a Run 1b checkpoint chosen by soak. Budget: ≈$65 for ≈29M games. <span class="pending">pending</span> committed after the box verification rental and the soaks.</p>
+
+<h3>8.5 What the Losses Taught Us</h3>
+<p>A hand-audited loss autopsy over ≈1,400 transfer-harness battles decomposes losses into two classes: <strong>76% were never competitive</strong> (the agent fell behind by the midgame and stayed behind) against <strong>24% thrown</strong> — a battle state that sustained ≥0.75 predicted value and was later lost. Every thrown-battle exemplar pulled for hand review was a genuine misplay, not a measurement artifact.</p>
+<p>Three mechanisms explain most of the thrown share and the plateau shape:</p>
+<ul>
+<li><strong>The value head is overconfident in the mid-range.</strong> States it scores 0.6–0.7 (a 60–70% predicted win probability) realize an actual win rate of ≈25% — the single largest calibration gap found, and the direct mechanism behind most thrown battles: the agent commits to a losing line because its own value estimate reported the line as already won.</li>
+<li><strong>Switching is underused and non-adaptive.</strong> The agent switches on 8% of its decisions against Foul&nbsp;Play's 15%, carries only ≈1% of policy mass on switch actions, and — critically — does not switch more when it is losing. A policy that cannot fall back to a better matchup under pressure is structurally capped below an opponent that can.</li>
+<li><strong>Immunity-into-effect attacks never improved across training.</strong> The root cause is an observation defect, not a policy failure: eight event-outcome channels (miss, crit, no-effect, denied) were hardwired to zero in every observation the network ever saw, so there was never a learning signal telling it an attack had failed. Separately, redundant status/hazard moves (re-applying an effect already up) occur 16–31 times per 100 battles — wasted actions rather than losing ones, but evidence the policy does not track field state precisely.</li>
+</ul>
+<p><strong>Caveat, and a first bound on it.</strong> The 76/24 never-competitive/thrown split could not, at the time of the autopsy, be apportioned between genuine misplay and variance (a crit or a miss inside an otherwise sound line): no log recorded per-event crit/miss/no-effect outcomes, so the two were conflated inside "never competitive." The protocol-stream logging shipped in PR&nbsp;#391 (§8.6) records exactly this signal, and a first measurement over 100 battles now bounds it. Critical-hit rates match the generation-9 base rate on both sides — ours 3.92%, the opponent's 4.07%, against a nominal 4.17% — which rules out an engine anomaly as an explanation for the gap. <strong>18.2% of our losses contain two or more opponent critical hits</strong>, which is a loose <em>ceiling</em> on the share of losses attributable to that particular form of variance, not an estimate of it: a battle can contain two crits and still be lost on merit. The next autopsy, run on logs that carry the full outcome stream, will replace the ceiling with a decomposition.</p>
+
+<h3>8.6 Closing the Sim-to-Real Gap</h3>
+<p>Six pull requests merged in one night, aimed directly at defects the loss autopsy and the conformance ledger surfaced; each carried an independent adversarial verifier (§7), and roughly twenty defects were caught before merge. The three that changed measurable quantities, with the re-measurements that have since landed:</p>
+<ul>
+<li><strong>PR&nbsp;#391 — protocol-stream opponent observation</strong> (closes approximation A9) <strong>+ legal-mask fallback.</strong> Replaces inference of the opponent's hidden state with a direct read of Showdown's protocol stream, targeting the ≈55% of decisions on which opponent actions were previously unobserved (§6.2); also hardens the legal-mask fallback path implicated in the §6.4 withdrawn result. <strong>Re-measured:</strong> unknown-action rate 56.4% → 19.8%, residual decomposed and found benign, A9 closed (§6.2).</li>
+<li><strong>PR&nbsp;#392 — distributed actor/learner layer.</strong> Splits environment rollout from the learner process. Measured at ≈70&nbsp;KB/sample, projecting to ≈51&nbsp;MB/s of actor→learner traffic at full training rate. Our original conclusion — <em>actors must sit in the same datacenter as the learner</em> — survives, but the probes of §8.7 sharpened it into something stronger and cheaper: because the GPU idles at 0–9% and one modest learner feeds ≈190 actor cores (§8.3), a run below that width should not cross a network at all. <strong>The correct default is one box, not a fleet;</strong> the distributed layer earns its keep only above ≈190 actor cores, and meanwhile provides the process separation the box itself uses.</li>
+<li><strong>PR&nbsp;#393/#394 — six dead event channels, and conformance patches 18–21.</strong> Eight of 68 event-history channels (miss, crit, no-effect, denied, for each side) had been hardwired to zero in every observation Runs 1 and 1b ever saw — the proven root cause of §8.5's never-improving immunity blunders. Six are now live. The engine patches fix the damage-roll application order, PP-decrement timing, Curse's target selection, a status duration-counter wire bug, and Ice Face / Sturdy / Spikes / Defog interactions. <strong>Re-measured:</strong> turn agreement 79.56% → <strong>85.73%</strong> [85.46,&nbsp;86.00] over 986 battles and 66,034 turns; reward agreement 92.09%; PP class −86%; Curse closed (§5.2).</li>
+</ul>
+<p>Two cautions attach to this section. First, <strong>none of §8.4's numbers reflect any of it</strong> — Runs 1 and 1b trained against the 17-patch engine with the six channels dead. Any strength attributable to these changes appears only in the week run, which is the first to train on them. Second, a train/serve skew was found and closed <em>between</em> those PRs and the week run: the six new channels were live in the training environment but zeroed by the evaluation adapter, so the two paths disagreed 66-derived/2-zeroed against 66-derived/8-zeroed. Both paths now report an identical census, verified independently on two live runs (§8.7). Had this shipped, the week run would have trained a policy on signals its own benchmark could not see.</p>
+
+<h3>8.7 Verifying the Stack Before Spending a Week on It</h3>
+<p>A week-long run costs more than everything in this paper combined and produces one number. Before committing it we ran a deliberate verification campaign on rented hardware, on the premise that green test suites certify the code we thought to test and nothing else. The campaign cost <strong>$4.11</strong> — 0.7% of the run it was protecting — and found 27 flaws.</p>
+<p><strong>Probe 1</strong> ($2.54, 309,350 games on a rented 4090). The science stack worked: 19.97M samples with zero encoding or layout mismatches, zero quarantined or corrupt shards, all nine fidelity options on, warm start functional, and a byte-exact 70,298 bytes per row matching the environment contract. The <em>operational</em> stack did not. Thirteen flaws, of which the one that matters for this paper is <strong>F6: the trainer never published its weights, and had no flag to make it.</strong> Actors therefore ran against the initial parameters for the entire probe while the accept-rate metric read a healthy 1.0. The consequence is a caveat we are obliged to state loudly:</p>
+<div class="notice"><strong>Probe 1's flat learning curve is not a learning result.</strong> Its training signal was entirely off-policy by construction, and its evaluation adapter was additionally missing six channels the trainer had. The pooled 13.67% [10.24, 18.02] it measured, and its "late-vs-base +0.83pt, p&nbsp;=&nbsp;0.74" slope read, say nothing about whether the stack learns. They are reported here as a defect report, not as evidence. The collapse of its opponent-action auxiliary head from 0.704 to 0.46 across the probe is a symptom of the same defect.</div>
+<p>Probe 1 also corrected a number we had been carrying: Run 1b's iteration-200 checkpoint is ≈12–14% against Foul Play, not the ≈24% a dashboard reading had suggested — the 24% band belongs to much later checkpoints. §8.1's 12.0% is the corrected figure.</p>
+<p><strong>Probe 2</strong> ($0.86, on the fixed stack). Eight of nine claimed fixes verified <em>in use</em> rather than in diff. The weight loop demonstrably closed: the learner published v0 before the first gradient step and then v0→v8 with eight distinct SHA-256 digests, actors were observed swapping to v1 and v2, zero rejected. Integrity counters were proven live rather than merely zero by feeding the ingest path a fabricated encoding id and confirming it refused the shard. Fourteen new flaws surfaced, the launch-gating one being instructive:</p>
+<div class="notice">The deploy gate reported <code>11/11 required files present</code>, and then every actor died on <code>ImportError</code>. The gate checked a curated list of files; the encoder's import closure reached three directories outside the deployed tree. Probe 1 had masked it by hand-deploying a wider tree. <strong>A gate that checks a list of files is not a gate that checks the program runs</strong> — the fix makes the remote gate import and <em>construct</em> the encoder. A fifth external dependency, a JSON data file opened lazily during construction, was found only because of that change: a bare import would still have passed.</div>
+<p><strong>Fix waves and close-out.</strong> PRs #397–399 closed probe 1's findings, #400–401 closed probe 2's; roughly thirteen further defects were caught by adversarial verifiers across five review rounds on those two PRs alone, including one where a verifier's own re-derivation found that a claimed fix had not landed. A final $0.71 smoke launch then exercised the exact merged stack end to end on a fresh rental — rent, gate, warm start, publish v0, actor hot-swap, heartbeat aggregate, terminate — and passed 10 of 10 checks.</p>
+<p><strong>What we take from this.</strong> Every defect above was invisible to a green build, and most were invisible to the diff as well; they appeared only when real code was deployed to a real box by the real launcher. Three classes recurred: <em>gates that verify an artifact rather than a behaviour</em> (the file-list gate, the accept-rate metric reading 1.0 against unpublished weights); <em>metrics that flatter themselves</em> (a consumption rate reported as a generation rate, swinging 7× while draining a backlog); and <em>train/serve skew that only a two-path census detects</em>. The protocol change we adopted: no long run launches without a paid end-to-end rehearsal of the exact merged stack on the exact target shape, and no fix counts as landed until it is observed working on rented hardware. The rehearsal is cheap; a week of off-policy training is not.</p>
 
 <h2><span class="no">9</span>Limitations and Future Work</h2>
 <ul>
-<li><strong>Conformance is 79.6%, not 99.9%.</strong> One turn in five still diverges from Showdown somewhere; the ranked residual (damage-roll residue, PP, Curse, duration counters) bounds how much simulator error the net can absorb, and closing it is ongoing.</li>
-<li><strong>The transfer measurement carries known approximations</strong> (A3, A9, A13 open halves), all counted per series; tightening A9 (opponent-action inference) is the highest-value fix — its current rule is defeated by the measurement fork never decrementing PP.</li>
+<li><strong>Conformance is 85.7%, not 99.9%.</strong> Roughly one turn in seven still diverges from Showdown somewhere; the ranked residual (damage-roll residue 5.78%, a 4.91% unclassified bucket, the <code>lockedmove</code> volatile, duration counters) bounds how much simulator error the net can absorb, and closing it is ongoing. The unclassified bucket is now the largest single item and the least understood.</li>
+<li><strong>The transfer measurement carries known approximations</strong> (A3 and the open half of A13), all counted per series. A9 — the largest, opponent-action inference — is closed (§6.2); opponent slot compaction is now the biggest remaining.</li>
+<li><strong>The size null is volume-bound.</strong> §8.2 finds no advantage to 8.1M over 2.49M parameters at ≈6M games of experience. That is not a claim about 30M or 100M games, and the week run is designed to re-test it.</li>
+<li><strong>No fixed-reference abort criterion.</strong> §8.4 shows the self-play league saturates at ≈50% against a sliding frozen reference while genuine strength is still rising, so it cannot detect a plateau and cannot gate a long run. Only the external treadmill can, and it costs real battles; a cheap fixed-reference internal opponent is an open design problem.</li>
+<li><strong>Every number here predates the current engine.</strong> Runs 1 and 1b trained against the 17-patch, 79.6%-conformance engine with six event-outcome channels dead. The relationship between simulator fidelity and transferred strength is therefore untested — plausible, argued, and unmeasured.</li>
 <li><strong>Formats.</strong> Everything here is gen9 random battles. OU and National Dex need team pools and preview handling; <strong>doubles</strong> — the eventual differentiator, since every known battle AI including Foul&nbsp;Play is singles-only — requires engine extension before any training run.</li>
-<li><strong>Serving.</strong> The production path (a Rust or JVM forward pass inside the game server, the datapack→engine-tables pipeline for custom content) is designed but not yet shipped.</li>
+<li><strong>Serving.</strong> The production path (a Rust or JVM forward pass inside the game server, the datapack→engine-tables pipeline for custom content) is designed but not yet shipped. The §8.2 size result matters most here: a 2.49M net at ≈3.5&nbsp;ms is what makes 500 concurrent battles arithmetically possible.</li>
 <li><strong>Hybridization.</strong> The Phase-1 search machinery over a Phase-2 network is the strongest configuration for compute-unconstrained battles (gym leaders); Jaxcalibur's +100–150 Elo search increment suggests the ordering: net first, search as garnish.</li>
 </ul>
 
 <hr class="rule">
-<p><strong>Acknowledgements.</strong> Built by Claude coding agents (Anthropic) under the direction of the Cobblemon Eclipse operator, on infrastructure spanning a local sims box and rented RunPod GPUs. Foul&nbsp;Play, poke-engine, Pokémon Showdown, and poke-env are the giants whose shoulders this stands on.</p>
+<p><strong>Acknowledgements.</strong> Built by Claude coding agents (Anthropic) under the direction of the Cobblemon Eclipse operator, on infrastructure spanning a local sims box and rented GPUs. Foul&nbsp;Play, poke-engine, Pokémon Showdown, and poke-env are the giants whose shoulders this stands on.</p>
 
-<div class="footer">Working draft · maintained from <code>docs/paper/DRAFT.md</code> (branch <code>claude/paper</code>) · numbers marked pending update after the 2026-08-31 readout · private distribution</div>
+<div class="footer">Working draft · maintained from <code>docs/paper/DRAFT.md</code> (branch <code>claude/paper</code>) · Run 1/1b final as of 2026-08-31; numbers still marked pending update after the 300-game soaks and the week-long run · private distribution</div>
 </div>
