@@ -62,7 +62,7 @@ a{color:var(--accent);}
 <h1>From Search to Self-Play: Building a Real-Time Pokémon Battle AI Under a Production Latency Budget</h1>
 <div class="meta">
   <span><b>Status</b> working draft</span>
-  <span><b>Updated</b> 2026-09-07 (round 8)</span>
+  <span><b>Updated</b> 2026-09-11 (round 8.1)</span>
   <span><b>Distribution</b> private, shared at the author's discretion</span>
 </div>
 <div class="notice"><strong>Round 8 is a cut, not an addition.</strong> The previous revision ran 87,772 words across a 46-subsection chronological results section that had become a lab diary duplicating the campaign's own working notes. This revision reports the results that changed decisions — with every number, its interval, and the decision it drove — at roughly a tenth of the length. Nothing is deleted: the full chronological record is indexed in <strong>Appendix A</strong>, pointing at the lane notes under <code>scratchpad/gpu-wave/</code> where the detail still lives.</div>
@@ -425,6 +425,49 @@ the next accuracy item — the census that would have ranked them third is itsel
 they are noise — and treat the remaining ≈10% as a damage-formula problem, not an enumerable defect
 list.</p>
 
+<h3>4.16 TODAY — the plateau autopsy: three defects, not one keyhole</h3>
+<p>Every lineage of the GPU era shows the same shape: a steep first day, then a flat line the
+private rulers cannot move. Thirteen independent read-only reviews of the training stack, the
+league, the measurement chain and the optimiser (with the published self-play literature as the
+outside reference) were asked why. They did not find a keyhole. They found three defects that each
+explain part of the flat line, plus a fourth that explains why one of the campaign's own knobs was
+doing nothing.</p>
+<p><strong>The league was static or degenerate.</strong> The 8M's <code>best</code> slot had been
+frozen on one checkpoint for 21 hours by a pointer filter that never matched; the 19M's league was
+its own seed on 60% of rows. A self-play population that does not move cannot teach anything a
+fixed opponent does not already know, and the arms trained from scratch with no league at all never
+climbed in any era — self-play is non-transitive and needs a population. Both defects were fixed the
+same night.</p>
+<p><strong>The measurement was blind.</strong> The ladder seat had been swapping checkpoints every
+~6 minutes, so no Elo could trend; the private rulers sample while the ladder plays argmax (~13pp /
+~92 Elo apart on identical weights); and scoring on the 226-team training pool reads 15–20pp higher
+than a held-out pool the checkpoint could not have memorised. A Wilson regression over the honest
+(held-out) rung shows the 8M gaining 1.6–5.8pp per day under the "flat" line. Part of the plateau is
+the instrument.</p>
+<p><strong>The optimiser had run out of signal.</strong> A 56× deceleration with every PPO signal
+falling, clip fraction saturated at 83–96%, two to four giant steps per iteration, and eighteen
+warm restarts that each zeroed Adam's moments and the entropy state. The restart wash of §4.10 was
+not a one-off; it was the routine.</p>
+<p><strong>And the entropy controller only pushes one way.</strong> The log-space controller of
+§4.5 is bonus-only: its coefficient is <code>exp(log_alpha)</code> clamped to a floor, so it can
+raise entropy toward a target but never lower it. A lower target is inert the moment the
+coefficient hits the floor — which it did on two lineages within an hour of the target being
+lowered, and stayed there all night (entropy 0.93–0.98 against a 0.55 target). Every "sharpen the
+policy" experiment of the last two weeks that relied on this knob tested nothing.</p>
+<p>Refuted along the way, each with a measurement: environment stranding (post-§4.4), the seed
+tether, the critic as the bottleneck, 8M capacity, data diversity as a universal cause, an
+argmax-evaluation artefact, reward sparsity, and hidden restarts.</p>
+<p><strong>Decision:</strong> three things changed at once. (1) A <strong>decision instrument</strong>
+— a 2,000-game argmax head-to-head on the held-out pool against a frozen snapshot of the live ladder
+net, run every four hours off the training boxes — is now the only number that moves a checkpoint,
+retiring the pinned-anchor rungs and the 226-pool score as decision inputs (its first morning is
+§5). (2) The optimiser grew a signed entropy penalty, full-state resume, a KL target and a
+learning-rate schedule, and the league grew prioritised-fictitious-self-play shares, cross-shape
+opponents so the 19M can play 8M nets, and an exploiter arm. (3) The 19M distilled lineage,
+relaunched with a de-duplicated league and a KL tether, climbed from 45–46% to parity with the live
+8M net (mean of its last twelve 300-game points: 49.8%) and briefly above it — the first time a
+larger net has matched the served one on the honest rung.</p>
+
 <h2><span class="no">5</span>What We Know We Do Not Know</h2>
 <p><strong>The sim gap, as an open ceiling question.</strong> Two very different starting points —
 a run trained from scratch for thousands of iterations, and a lineage warm-started from a
@@ -451,6 +494,12 @@ magnitude than the loss share suggests, because a normalised PPO surrogate sits 
 by construction while its derivative does not. A loss share is not a gradient share, and which one
 governs what a shared trunk actually learns is not fully settled.</p>
 
+<p><strong>The decision instrument's first morning.</strong> The 2,000-game held-out ruler (§4.16)
+has produced no verdict yet: of seven runs, five never got an ssh answer from the rented card, and
+the one that played hit a loader defect that served the 14-wide random-battle net through the
+89-wide policy class. Until it reports, "the 19M is at parity" rests on 300-game private points,
+which §3 says are underpowered for a 3pp question.</p>
+
 <h2><span class="no">6</span>Corrections</h2>
 <div class="tablewrap">
 <table>
@@ -465,6 +514,7 @@ governs what a shared trunk actually learns is not fully settled.</p>
 <tr><td>C8</td><td>a 599-iteration warm-started lineage landing at 41%</td><td>read as evidence the training signal or environment caps strength near 41% regardless of starting point</td><td><strong>the "sim-gap" reading was a broken launch</strong> — iteration 0's <code>approx_kl</code> = 0.747 nats shows one unwarmed PPO update erased the 51%-strength seed; the relaunch recipe is known and not yet run</td><td>2026-09-07</td></tr>
 <tr><td>C9</td><td>sampling beats argmax by ≈+9.5pp</td><td>measured on gpu-m2 against one fixed argmax opponent (two independent lanes)</td><td><strong>a fixed-opponent artefact</strong> — on the served anchor against Foul Play, sampling <em>costs</em> 10.45pp, and the +9.5pp evaporates (p = 0.53) the moment the opponent is allowed to vary</td><td>2026-09-07</td></tr>
 <tr><td>C10</td><td><code>aux_opp_action_acc</code> ≈ 0.58, read as "near chance," implying a weak or dead head</td><td>chance was computed as 1/89 ≈ 0.011</td><td><strong><code>aux_opp_action_acc</code> is not a quality signal on its own</strong> — true chance (uniform over the opponent's <em>legal</em> set) is 0.161, the head holds 67% of an exactly-measured oracle's headroom, and the raw accuracy mostly tracks the policy's own entropy falling, not head quality; read the excess or the oracle share instead</td><td>2026-09-07</td></tr>
+<tr><td>C11</td><td>"lower the entropy target to sharpen the policy"</td><td>assumed a two-sided controller</td><td><strong>the controller is bonus-only</strong> — <code>coef = exp(log_alpha)</code> clamped to a floor can raise entropy but never lower it; a lower target is inert once the coefficient hits the floor (observed on two lineages, all night); the signed penalty side landed 2026-09-11</td><td>2026-09-11</td></tr>
 </table>
 </div>
 
@@ -522,6 +572,7 @@ Each line is what the subsection found, in one sentence, with a pointer into
 <tr><td>8.44</td><td>The compile wall</td><td>31 silent CI hours traced to one cold fused-kernel build</td><td><code>jaxport-compile-footprint.md</code>, <code>ci-compile-cache.md</code></td></tr>
 <tr><td>8.45</td><td>Distillation's 78%</td><td>a seed ties its teacher in strength while diverging on argmax</td><td><code>M1-pivot.md</code></td></tr>
 <tr><td>8.46</td><td>The port's accuracy, as a sum</td><td>five per-PR deltas summed, explicitly not a re-record</td><td><code>census-116.md</code>, <code>union-pregrade.md</code></td></tr>
+<tr><td>8.47</td><td>The plateau autopsy</td><td>three defects (static league, blind measurement, optimiser out of signal) and a one-way entropy knob (§4.16)</td><td><code>plateau-research/SYNTHESIS.md</code>, <code>decision-ruler.md</code></td></tr>
 </table>
 </div>
 
@@ -533,7 +584,7 @@ withdrawn and corrected numbers live only in §6. The full chronological record 
 compresses is indexed in Appendix A and lives in <code>scratchpad/gpu-wave/</code> under the
 pointed-to filenames; several early-campaign (CPU-era) lane notes were archived off the working
 tree at era close and are recorded under <code>cpu-era-archive-MANIFEST.md</code> rather than as
-standalone files. §4.9–§4.15 are dated 2026-09-07 and are the newest material in this paper; §5's
+standalone files. §4.9–§4.15 are dated 2026-09-07; §4.16 (the plateau autopsy) is dated 2026-09-11 and is the newest material in this paper; §5's
 two open questions (the sim-gap ceiling and the critic's horizon) are explicitly unresolved and
 should not be read as pending confirmations of a specific number. No masked-lineage strength level
 beyond §4.4's post-fix anchor curve is claimed anywhere in this paper. · private distribution</div>
